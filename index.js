@@ -339,6 +339,7 @@ client.on('interactionCreate', async interaction => {
   if (interaction.isButton()) {
     const { customId, channel, user, member, guild } = interaction;
     
+    // 티켓 생성 버튼 처리
     if (customId.startsWith('ticket_') && customId !== 'ticket_close' && customId !== 'ticket_delete') {
       const ticketTypeMap = {
         'ticket_server': '서버-문의',
@@ -413,6 +414,109 @@ client.on('interactionCreate', async interaction => {
         } catch (e) {}
       }, 5000);
       return;
+    }
+
+    // 🎮 내전인원 페이지네이션 버튼 처리 (page_prev 또는 page_next)
+    if (customId.startsWith('page_')) {
+      const participantsData = loadData(PARTICIPANTS_FILE);
+      const guildId = guild.id;
+      const channelId = channel.id;
+      const currentParticipants = participantsData[guildId]?.[channelId] || [];
+
+      if (currentParticipants.length === 0) {
+        return interaction.update({ content: '참가자가 없습니다.', embeds: [], components: [] });
+      }
+
+      // 기존 메시지의 임베드 푸터에서 현재 페이지 번호 추출 (예: "페이지 1 / 3")
+      const footerText = interaction.message.embeds[0]?.footer?.text || '';
+      const match = footerText.match(/페이지\s*(\d+)\s*\/\s*(\d+)/);
+      let currentPage = match ? parseInt(match[1]) : 1;
+      const totalPages = match ? parseInt(match[2]) : 1;
+
+      if (customId === 'page_prev') {
+        currentPage = currentPage > 1 ? currentPage - 1 : totalPages;
+      } else if (customId === 'page_next') {
+        currentPage = currentPage < totalPages ? currentPage + 1 : 1;
+      }
+
+      // 유저 세부 정보 재구성
+      const userDetails = [];
+      for (const userId of currentParticipants) {
+        try {
+          const memberObj = await guild.members.fetch(userId);
+          const userRoleNames = memberObj.roles.cache.map(r => r.name.toLowerCase());
+
+          let matchedTier = { code: 'U', name: 'Unranked', color: '#808080', rank: 11 };
+          for (const t of tierInfo) {
+            const isMatch = userRoleNames.some(roleName => 
+              t.keywords.some(kw => roleName.includes(kw.toLowerCase()))
+            );
+            if (isMatch) {
+              matchedTier = t;
+              break;
+            }
+          }
+
+          const userLines = [];
+          userRoleNames.forEach(roleName => {
+            lineKeywords.forEach(line => {
+              if (roleName.includes(line) && !userLines.includes(line)) {
+                userLines.push(line);
+              }
+            });
+          });
+
+          const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
+          const rawName = memberObj.nickname || memberObj.user.globalName || memberObj.user.username;
+
+          let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
+          const tagIndex = cleanName.indexOf('#');
+          if (tagIndex !== -1) {
+            const beforeTag = cleanName.substring(0, tagIndex);
+            const afterTagPart = cleanName.substring(tagIndex);
+            const tagMatch = afterTagPart.match(/#[^\s#]+/);
+            cleanName = beforeTag + (tagMatch ? tagMatch[0] : '');
+          } else {
+            cleanName = cleanName
+              .replace(/\b(여|남)\b/g, '')
+              .replace(/\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
+              .trim();
+          }
+          if (!cleanName) cleanName = rawName;
+
+          const encodedName = encodeURIComponent(cleanName);
+          const fowLink = `https://fow.lol/find/${encodedName}`;
+
+          userDetails.push({
+            rank: matchedTier.rank,
+            text: `[${matchedTier.code}] ${rawName} / ${lineText} ([전적](${fowLink}))`
+          });
+        } catch (e) {}
+      }
+
+      userDetails.sort((a, b) => a.rank - b.rank);
+
+      const itemsPerPage = 10;
+      const newTotalPages = Math.ceil(userDetails.length / itemsPerPage);
+      // 페이지 범위 초과 방지
+      if (currentPage > newTotalPages) currentPage = newTotalPages;
+
+      const startIndex = (currentPage - 1) * itemsPerPage;
+      const slicedItems = userDetails.slice(startIndex, startIndex + itemsPerPage);
+      const listDesc = slicedItems.map(u => u.text).join('\n');
+
+      const embed = new EmbedBuilder()
+        .setColor('#5865F2')
+        .setTitle('🎮 내전 참가자 명단 (티어순)')
+        .setDescription(listDesc)
+        .setFooter({ text: `총 참가 인원: ${userDetails.length}명 | 페이지 ${currentPage} / ${newTotalPages}` });
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('page_prev').setLabel('◀ 이전').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('page_next').setLabel('다음 ▶').setStyle(ButtonStyle.Primary)
+      );
+
+      return await interaction.update({ embeds: [embed], components: newTotalPages > 1 ? [row] : [] });
     }
   }
 
@@ -578,6 +682,12 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
+    // --- 🛒 [/상점구매] (무한 로딩 버그 수정) ---
+    if (commandName === '상점구매') {
+      const itemName = options.getString('상품이름');
+      return await interaction.editReply({ content: `🛒 **${itemName}** 상품 구매 기능은 현재 준비 중입니다!` });
+    }
+
     // --- 관리자 명령어 처리 ---
     if (commandName === '포인트지급') {
       const targetUser = options.getUser('대상');
@@ -713,7 +823,7 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 🎮 [/내전인원] (태그 뒷부분까지 깔끔하게 정제하여 FOW 링크 생성) ---
+    // --- 🎮 [/내전인원] (10명 단위 페이지네이션 적용) ---
     if (commandName === '내전인원') {
       const currentParticipants = participantsData[guildId][channelId] || [];
       if (currentParticipants.length === 0) {
@@ -750,55 +860,55 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // 🧹 닉네임 정제 로직 개선
-          let cleanName = rawName
-            .replace(/^\d{2}\s*/, '') // 앞의 두 자리 년생 제거
-            .trim();
-
-          // 롤 태그(#)가 포함되어 있다면, 태그 뒤에 붙은 성별(여/남) 및 티어 알파벳(e, d, p 등)을 잘라냅니다.
+          let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
           const tagIndex = cleanName.indexOf('#');
           if (tagIndex !== -1) {
-            // 태그 기호 뒤의 첫 번째 공백이나 단어 경계까지만 취하고 뒤쪽 성별/티어 제거
             const beforeTag = cleanName.substring(0, tagIndex);
             const afterTagPart = cleanName.substring(tagIndex);
-            // #태그 와 일치하는 부분만 남기고 뒤의 불필요한 단어 제거 (예: #o3o 여 e -> #o3o)
             const tagMatch = afterTagPart.match(/#[^\s#]+/);
             cleanName = beforeTag + (tagMatch ? tagMatch[0] : '');
           } else {
-            // 태그가 없을 경우 기존처럼 성별 및 티어 단어 제거
             cleanName = cleanName
               .replace(/\b(여|남)\b/g, '')
               .replace(/\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
               .trim();
           }
-
           if (!cleanName) cleanName = rawName;
 
-          // FOW.LOL 전적검색 링크 생성
           const encodedName = encodeURIComponent(cleanName);
           const fowLink = `https://fow.lol/find/${encodedName}`;
 
           userDetails.push({
             rank: matchedTier.rank,
-            tierCode: matchedTier.code,
             text: `[${matchedTier.code}] ${rawName} / ${lineText} ([전적](${fowLink}))`
           });
         } catch (e) {}
       }
 
-      // 티어 순서대로 정렬 (rank 값이 낮은 것이 높은 티어)
       userDetails.sort((a, b) => a.rank - b.rank);
 
-      const listDesc = userDetails.map(u => u.text).join('\n');
-      const totalCount = userDetails.length;
+      const itemsPerPage = 10;
+      const totalPages = Math.ceil(userDetails.length / itemsPerPage);
+      const currentPage = 1;
+
+      const slicedItems = userDetails.slice(0, itemsPerPage);
+      const listDesc = slicedItems.map(u => u.text).join('\n');
 
       const embed = new EmbedBuilder()
         .setColor('#5865F2')
         .setTitle('🎮 내전 참가자 명단 (티어순)')
         .setDescription(listDesc)
-        .setFooter({ text: `총 참가 인원: ${totalCount}명` });
+        .setFooter({ text: `총 참가 인원: ${userDetails.length}명 | 페이지 ${currentPage} / ${totalPages}` });
 
-      return await interaction.editReply({ embeds: [embed] });
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('page_prev').setLabel('◀ 이전').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('page_next').setLabel('다음 ▶').setStyle(ButtonStyle.Primary)
+      );
+
+      return await interaction.editReply({ 
+        embeds: [embed], 
+        components: totalPages > 1 ? [row] : [] 
+      });
     }
 
     if (commandName === '명단초기화') {
