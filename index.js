@@ -32,7 +32,7 @@ const client = new Client({
 // 📌 [설정] 내전 역할 이름
 const CIVIL_WAR_ROLE_NAME = '내전'; 
 
-// --- 데이터 파일 관리 (포인트, 경고, 내전정지, 상점, 포럼별 참가자) ---
+// --- 데이터 파일 관리 (포인트, 경고, 내전정지, 상점, 포럼/게시글별 참가자) ---
 const POINTS_FILE = path.join(__dirname, 'points.json');
 const WARNINGS_FILE = path.join(__dirname, 'warnings.json');
 const BANS_FILE = path.join(__dirname, 'bans.json');
@@ -106,12 +106,12 @@ const commands = [
   // --- 관리자 전용 명령어 ---
   new SlashCommandBuilder()
     .setName('내전인원')
-    .setDescription('현재 포럼의 내전 참가자 명단을 티어/역할순으로 확인합니다. (관리자 전용)')
+    .setDescription('현재 게시글의 내전 참가자 명단을 티어/역할순으로 확인합니다. (관리자 전용)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
     .setName('명단초기화')
-    .setDescription('현재 포럼의 참가자 명단을 초기화합니다. (관리자 전용)')
+    .setDescription('현재 게시글의 참가자 명단을 초기화합니다. (관리자 전용)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
@@ -255,7 +255,7 @@ async function notifyOwner(guild, buyer, itemName, price, extraInfo = '') {
   }
 }
 
-// 채팅 감지 이벤트 ('ㅅ', '손', 't') - 포럼(스레드/채널)별 구분 적용
+// 채팅 감지 이벤트 ('ㅅ', '손', 't') - 게시글(스레드) 고유 ID 사용
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
@@ -266,22 +266,19 @@ client.on('messageCreate', async (message) => {
     const guildId = message.guild?.id;
     if (!guildId) return;
 
-    // 포럼 채널 혹은 스레드인 경우 부모 ID 또는 현재 채널 ID를 기준(포럼 식별자)으로 사용
-    let forumId = message.channel.id;
-    if (message.channel.isThread()) {
-      forumId = message.channel.parentId || message.channel.id;
-    }
+    // 각 게시글(스레드)이나 채널마다 고유한 ID 사용
+    const channelId = message.channel.id;
 
     const participantsData = loadData(PARTICIPANTS_FILE);
     if (!participantsData[guildId]) participantsData[guildId] = {};
-    if (!participantsData[guildId][forumId]) participantsData[guildId][forumId] = [];
+    if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
 
-    if (participantsData[guildId][forumId].includes(userId)) {
+    if (participantsData[guildId][channelId].includes(userId)) {
       await message.react('⚠️');
       return;
     }
 
-    participantsData[guildId][forumId].push(userId);
+    participantsData[guildId][channelId].push(userId);
     saveData(PARTICIPANTS_FILE, participantsData);
     await message.react('✅');
   }
@@ -293,11 +290,8 @@ client.on('interactionCreate', async interaction => {
 
   const { commandName, guildId, options, user, guild, channel } = interaction;
   
-  // 현재 명령어가 입력된 포럼/채널 ID 파악
-  let forumId = channel.id;
-  if (channel.isThread()) {
-    forumId = channel.parentId || channel.id;
-  }
+  // 현재 명령어가 입력된 게시글(스레드)/채널의 고유 ID
+  const channelId = channel.id;
 
   const pointsData = loadData(POINTS_FILE);
   if (!pointsData[guildId]) pointsData[guildId] = {};
@@ -314,20 +308,20 @@ client.on('interactionCreate', async interaction => {
 
   const participantsData = loadData(PARTICIPANTS_FILE);
   if (!participantsData[guildId]) participantsData[guildId] = {};
-  if (!participantsData[guildId][forumId]) participantsData[guildId][forumId] = [];
+  if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
 
   // [/내전인원]
   if (commandName === '내전인원') {
     await interaction.deferReply();
-    const embed = await buildEmbed(guild, participantsData[guildId][forumId]);
+    const embed = await buildEmbed(guild, participantsData[guildId][channelId]);
     await interaction.editReply({ embeds: [embed] });
   }
 
   // [/명단초기화]
   if (commandName === '명단초기화') {
-    participantsData[guildId][forumId] = [];
+    participantsData[guildId][channelId] = [];
     saveData(PARTICIPANTS_FILE, participantsData);
-    await interaction.reply('🔄 현재 포럼의 내전 참가자 명단이 초기화되었습니다!');
+    await interaction.reply('🔄 현재 게시글의 내전 참가자 명단이 초기화되었습니다!');
   }
 
   // [/포인트지급]
@@ -811,7 +805,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// 명단 생성 및 티어 감지 + fow.lol 링크 자동 추출 함수 (포럼별 참가자 리스트 전달)
+// 명단 생성 및 티어 감지 + fow.lol 링크 자동 추출 함수 (게시글별 참가자 리스트 전달)
 async function buildEmbed(guild, currentParticipants) {
   let description = '';
 
