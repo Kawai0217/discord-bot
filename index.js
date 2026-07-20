@@ -336,74 +336,89 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async interaction => {
-  // 1. 버튼 클릭 상호작용 처리 (티켓 생성)
+  // 1. 버튼 클릭 상호작용 처리
   if (interaction.isButton()) {
-    const { customId, guild, user } = interaction;
-    if (!customId.startsWith('ticket_')) return;
+    const { customId, channel, user, member, guild } = interaction;
+    
+    // 티켓 생성 버튼 처리
+    if (customId.startsWith('ticket_') && customId !== 'ticket_close' && customId !== 'ticket_delete') {
+      const ticketTypeMap = {
+        'ticket_server': '서버-문의',
+        'ticket_report': '유저-신고및분쟁',
+        'ticket_verify': '명의-인증',
+        'ticket_event': '이벤트-문의',
+        'ticket_etc': '기타-문의'
+      };
 
-    const ticketTypeMap = {
-      'ticket_server': '서버-문의',
-      'ticket_report': '유저-신고및분쟁',
-      'ticket_verify': '명의-인증',
-      'ticket_event': '이벤트-문의',
-      'ticket_etc': '기타-문의'
-    };
+      const typeName = ticketTypeMap[customId] || '기타-문의';
+      const threadName = `${typeName}-${user.username}`;
 
-    const typeName = ticketTypeMap[customId] || '기타-문의';
-    const channelName = `${typeName}-${user.username}`;
+      await interaction.deferReply({ ephemeral: true });
 
-    await interaction.deferReply({ ephemeral: true });
-
-    try {
-      // 비공개 채널 생성
-      const ticketChannel = await guild.channels.create({
-        name: channelName,
-        type: ChannelType.GuildText,
-        permissionOverwrites: [
-          {
-            id: guild.id, // @everyone 권한 차단
-            deny: [PermissionFlagsBits.ViewChannel]
-          },
-          {
-            id: user.id, // 티어 생성한 본인 허용
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
-          },
-          {
-            id: client.user.id, // 봇 허용
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
-          }
-        ]
-      });
-
-      const welcomeEmbed = new EmbedBuilder()
-        .setColor('#5865F2')
-        .setTitle(`🎫 ${typeName.replace('-', ' ')} 채널입니다.`)
-        .setDescription(`<@${user.id}> 님, 문의 내용을 남겨주시면 관리자가 확인 후 답변해 드립니다.\n\n업무가 완료되면 채널을 닫아주세요.`);
-
-      const closeButton = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('ticket_close')
-          .setLabel('🔒 채널 닫기')
-          .setStyle(ButtonStyle.Danger)
-      );
-
-      await ticketChannel.send({ content: `<@${user.id}>`, embeds: [welcomeEmbed], components: [closeButton] });
-      return await interaction.editReply({ content: `✅ 문의 채널이 생성되었습니다: <#${ticketChannel.id}>` });
-    } catch (err) {
-      console.error('티켓 채널 생성 오류:', err);
-      return await interaction.editReply({ content: '⚠️ 채널 생성 중 오류가 발생했습니다.' });
-    }
-  }
-
-  // 티켓 닫기 버튼 처리
-  if (interaction.isButton() && interaction.customId === 'ticket_close') {
-    await interaction.reply({ content: '🔒 5초 뒤에 채널이 삭제됩니다...', ephemeral: false });
-    setTimeout(async () => {
       try {
-        await interaction.channel.delete();
+        const thread = await channel.threads.create({
+          name: threadName,
+          autoArchiveDuration: 1440,
+          type: ChannelType.PrivateThread,
+          reason: '유저 문의 티켓 생성'
+        });
+
+        await thread.members.add(user.id);
+
+        const welcomeEmbed = new EmbedBuilder()
+          .setColor('#5865F2')
+          .setTitle(`🎫 ${typeName.replace('-', ' ')} 채널입니다.`)
+          .setDescription(`<@${user.id}> 님, 문의 내용을 남겨주시면 관리자가 확인 후 답변해 드립니다.\n\n업무가 완료되면 아래 버튼을 눌러 티켓을 닫아주세요.`);
+
+        // 티켓 닫기 / 티켓 삭제 버튼 배치
+        const ticketButtons = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('ticket_close')
+            .setLabel('🔒 티켓 닫기')
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId('ticket_delete')
+            .setLabel('🗑️ 티켓 삭제 (관리자용)')
+            .setStyle(ButtonStyle.Danger)
+        );
+
+        await thread.send({ content: `<@${user.id}>`, embeds: [welcomeEmbed], components: [ticketButtons] });
+        return await interaction.editReply({ content: `✅ 문의 스레드가 생성되었습니다: <#${thread.id}>` });
+      } catch (err) {
+        console.error('스레드 생성 오류:', err);
+        return await interaction.editReply({ content: '⚠️ 스레드 생성 중 오류가 발생했습니다. (봇에게 비공개 스레드 생성 권한이 있는지 확인해주세요)' });
+      }
+    }
+
+    // 티켓 닫기 버튼 처리 (누구나/유저도 가능)
+    if (customId === 'ticket_close') {
+      if (!channel.isThread()) {
+        return interaction.reply({ content: '⚠️ 스레드 채널에서만 사용할 수 있습니다.', ephemeral: true });
+      }
+
+      await interaction.reply({ content: '🔒 티켓이 닫혔습니다. 관리자가 확인 후 삭제할 수 있습니다.', ephemeral: false });
+      try {
+        await channel.setArchived(true); // 스레드 닫기(보관)
       } catch (e) {}
-    }, 5000);
-    return;
+      return;
+    }
+
+    // 티켓 삭제 버튼 처리 (오직 관리자만 가능)
+    if (customId === 'ticket_delete') {
+      if (!member.permissions.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({ content: '⚠️ 티켓 삭제는 관리자만 할 수 있습니다!', ephemeral: true });
+      }
+
+      await interaction.reply({ content: '🗑️ 5초 뒤에 티켓(스레드가) 영구 삭제됩니다...', ephemeral: false });
+      setTimeout(async () => {
+        try {
+          if (channel.isThread()) {
+            await channel.delete(); // 스레드 완전 삭제
+          }
+        } catch (e) {}
+      }, 5000);
+      return;
+    }
   }
 
   if (!interaction.isChatInputCommand()) return;
@@ -456,7 +471,6 @@ client.on('interactionCreate', async interaction => {
         new ButtonBuilder().setCustomId('ticket_etc').setLabel('기타 문의').setEmoji('💬').setStyle(ButtonStyle.Secondary)
       );
 
-      // deferReply 상태이므로 editReply로 패널 전송
       return await interaction.editReply({ content: '✅ 문의 패널이 생성되었습니다!', embeds: [embed], components: [row1, row2] });
     }
 
@@ -643,7 +657,7 @@ client.on('interactionCreate', async interaction => {
       const currentParticipants = participantsData[guildId][channelId] || [];
       let desc = currentParticipants.length === 0 ? '참가자가 없습니다.' : currentParticipants.map(id => `<@${id}>`).join('\n');
       const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎮 내전 참가자 명단').setDescription(desc);
-      return await interaction.editReply({ embeds: { embeds: [embed] } });
+      return await interaction.editReply({ embeds: [embed] });
     }
 
     if (commandName === '명단초기화') {
