@@ -267,6 +267,17 @@ client.once('ready', async () => {
   setInterval(checkVoiceChannels, 60 * 1000);
 });
 
+// 새로운 서버에 추가될 때 즉시 명령어 등록
+client.on('guildCreate', async (guild) => {
+  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+  try {
+    await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: commands });
+    console.log(`✅ 새로운 서버 [${guild.name}]에 슬래시 명령어 등록 완료!`);
+  } catch (error) {
+    console.error(`새로운 서버 명령어 등록 오류 (${guild.name}):`, error);
+  }
+});
+
 async function checkVoiceChannels() {
   const pointsData = loadData(POINTS_FILE);
   client.guilds.cache.forEach(async guild => {
