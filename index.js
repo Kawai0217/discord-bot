@@ -99,17 +99,17 @@ async function sendWarningLog(guild, title, description, color = '#FEE75C') {
 }
 
 const tierInfo = [
-  { keywords: ['챌린저', '챌'], code: 'C', name: 'Challenger', color: '#FFD700' },
-  { keywords: ['그랜드마스터', '그마'], code: 'GM', name: 'Grandmaster', color: '#FF8C00' },
-  { keywords: ['마스터', '마'], code: 'M', name: 'Master', color: '#BA55D3' },
-  { keywords: ['다이아몬드', '다이아', '다'], code: 'D', name: 'Diamond', color: '#00BFFF' },
-  { keywords: ['에메랄드', '에메', '에'], code: 'E', name: 'Emerald', color: '#00FA9A' },
-  { keywords: ['플래티넘', '플레티넘', '플래', '플레', '플'], code: 'P', name: 'Platinum', color: '#20B2AA' },
-  { keywords: ['골드', '골'], code: 'G', name: 'Gold', color: '#FFD700' },
-  { keywords: ['실버', '실'], code: 'S', name: 'Silver', color: '#C0C0C0' },
-  { keywords: ['브론즈', '브'], code: 'B', name: 'Bronze', color: '#CD853F' },
-  { keywords: ['아이언', '아'], code: 'I', name: 'Iron', color: '#708090' },
-  { keywords: ['언랭'], code: 'U', name: 'Unranked', color: '#808080' }
+  { keywords: ['챌린저', '챌'], code: 'C', name: 'Challenger', color: '#FFD700', rank: 1 },
+  { keywords: ['그랜드마스터', '그마'], code: 'GM', name: 'Grandmaster', color: '#FF8C00', rank: 2 },
+  { keywords: ['마스터', '마'], code: 'M', name: 'Master', color: '#BA55D3', rank: 3 },
+  { keywords: ['다이아몬드', '다이아', '다'], code: 'D', name: 'Diamond', color: '#00BFFF', rank: 4 },
+  { keywords: ['에메랄드', '에메', '에'], code: 'E', name: 'Emerald', color: '#00FA9A', rank: 5 },
+  { keywords: ['플래티넘', '플레티넘', '플래', '플레', '플'], code: 'P', name: 'Platinum', color: '#20B2AA', rank: 6 },
+  { keywords: ['골드', '골'], code: 'G', name: 'Gold', color: '#FFD700', rank: 7 },
+  { keywords: ['실버', '실'], code: 'S', name: 'Silver', color: '#C0C0C0', rank: 8 },
+  { keywords: ['브론즈', '브'], code: 'B', name: 'Bronze', color: '#CD853F', rank: 9 },
+  { keywords: ['아이언', '아'], code: 'I', name: 'Iron', color: '#708090', rank: 10 },
+  { keywords: ['언랭'], code: 'U', name: 'Unranked', color: '#808080', rank: 11 }
 ];
 
 const lineKeywords = ['탑', '정글', '미드', '원딜', '서폿'];
@@ -119,7 +119,7 @@ async function getUserProfileInfo(guild, user) {
     const member = await guild.members.fetch(user.id);
     const userRoleNames = member.roles.cache.map(r => r.name.toLowerCase());
 
-    let matchedTier = { code: 'U', name: 'Unranked', color: '#808080' };
+    let matchedTier = { code: 'U', name: 'Unranked', color: '#808080', rank: 11 };
     for (const t of tierInfo) {
       const isMatch = userRoleNames.some(roleName => 
         t.keywords.some(kw => roleName.includes(kw.toLowerCase()))
@@ -146,7 +146,7 @@ async function getUserProfileInfo(guild, user) {
   } catch (err) {
     return { 
       displayName: user.username, 
-      matchedTier: { code: 'U', name: 'Unranked', color: '#808080' }, 
+      matchedTier: { code: 'U', name: 'Unranked', color: '#808080', rank: 11 }, 
       lineText: '정보 없음' 
     };
   }
@@ -589,7 +589,7 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ content: `<@${targetUser.id}> 님에게 **${amount.toLocaleString()} P**를 지급/차감했습니다. (현재: ${newPoints} P)` });
     }
 
-    // --- ⚠️ [/경고] (부여 관리자 표시 추가) ---
+    // --- ⚠️ [/경고] ---
     if (commandName === '경고') {
       const targetUser = options.getUser('대상');
       const reason = options.getString('사유') || '사유 미기재';
@@ -597,7 +597,6 @@ client.on('interactionCreate', async interaction => {
       warningsData[guildId][targetUser.id] = currentWarns;
       saveData(WARNINGS_FILE, warningsData);
 
-      // 경고 로그 채널로 전송 (부여 관리자 포함)
       await sendWarningLog(
         guild, 
         '경고 부여', 
@@ -605,7 +604,6 @@ client.on('interactionCreate', async interaction => {
         '#FEE75C'
       );
 
-      // 명령어 입력한 곳에 보여줄 임베드
       const embed = new EmbedBuilder()
         .setColor('#FEE75C')
         .setTitle('⚠️ 경고 부여')
@@ -620,7 +618,7 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- ⚠️ [/경고차감] (차감 관리자 표시 추가) ---
+    // --- ⚠️ [/경고차감] ---
     if (commandName === '경고차감') {
       const targetUser = options.getUser('대상');
       const currentWarns = warningsData[guildId][targetUser.id] || 0;
@@ -630,7 +628,6 @@ client.on('interactionCreate', async interaction => {
       warningsData[guildId][targetUser.id] = newWarns;
       saveData(WARNINGS_FILE, warningsData);
 
-      // 경고 로그 채널로 전송 (차감 관리자 포함)
       await sendWarningLog(
         guild, 
         '경고 차감', 
@@ -638,7 +635,6 @@ client.on('interactionCreate', async interaction => {
         '#57F287'
       );
 
-      // 명령어 입력한 곳에 보여줄 임베드
       const embed = new EmbedBuilder()
         .setColor('#57F287')
         .setTitle('🛡️ 경고 차감')
@@ -717,10 +713,67 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
+    // --- 🎮 [/내전인원] (티어 순 정렬 및 FOW 전적검색 링크 적용) ---
     if (commandName === '내전인원') {
       const currentParticipants = participantsData[guildId][channelId] || [];
-      let desc = currentParticipants.length === 0 ? '참가자가 없습니다.' : currentParticipants.map(id => `<@${id}>`).join('\n');
-      const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎮 내전 참가자 명단').setDescription(desc);
+      if (currentParticipants.length === 0) {
+        const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎮 내전 참가자 명단 (티어순)').setDescription('참가자가 없습니다.');
+        return await interaction.editReply({ embeds: [embed] });
+      }
+
+      const userDetails = [];
+      for (const userId of currentParticipants) {
+        try {
+          const member = await guild.members.fetch(userId);
+          const userRoleNames = member.roles.cache.map(r => r.name.toLowerCase());
+
+          let matchedTier = { code: 'U', name: 'Unranked', color: '#808080', rank: 11 };
+          for (const t of tierInfo) {
+            const isMatch = userRoleNames.some(roleName => 
+              t.keywords.some(kw => roleName.includes(kw.toLowerCase()))
+            );
+            if (isMatch) {
+              matchedTier = t;
+              break;
+            }
+          }
+
+          const userLines = [];
+          userRoleNames.forEach(roleName => {
+            lineKeywords.forEach(line => {
+              if (roleName.includes(line) && !userLines.includes(line)) {
+                userLines.push(line);
+              }
+            });
+          });
+
+          const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
+          const rawName = member.nickname || member.user.globalName || member.user.username;
+
+          // FOW.LOL 전적검색 링크 생성 (띄어쓰기 상관없이 닉네임#태그 인식)
+          const encodedName = encodeURIComponent(rawName);
+          const fowLink = `https://fow.lol/find/${encodedName}`;
+
+          userDetails.push({
+            rank: matchedTier.rank,
+            tierCode: matchedTier.code,
+            text: `[${matchedTier.code}] ${rawName} / ${lineText} ([전적](${fowLink}))`
+          });
+        } catch (e) {}
+      }
+
+      // 티어 순서대로 정렬 (rank 값이 낮은 것이 높은 티어)
+      userDetails.sort((a, b) => a.rank - b.rank);
+
+      const listDesc = userDetails.map(u => u.text).join('\n');
+      const totalCount = userDetails.length;
+
+      const embed = new EmbedBuilder()
+        .setColor('#5865F2')
+        .setTitle('🎮 내전 참가자 명단 (티어순)')
+        .setDescription(listDesc)
+        .setFooter({ text: `총 참가 인원: ${totalCount}명` });
+
       return await interaction.editReply({ embeds: [embed] });
     }
 
