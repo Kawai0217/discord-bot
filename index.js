@@ -273,27 +273,40 @@ async function checkVoiceChannels() {
   });
 }
 
+// 7일 만료 체크 및 자동 역할 복구 함수
 async function checkExpiredBans() {
   const bansData = loadData(BANS_FILE);
   const now = Date.now();
   let hasChanged = false;
+
   for (const guildId in bansData) {
     const guild = client.guilds.cache.get(guildId);
     if (!guild) continue;
+
     for (const userId in bansData[guildId]) {
       const banInfo = bansData[guildId][userId];
+
       if (now >= banInfo.unbanTime) {
         try {
           const member = await guild.members.fetch(userId);
           const role = guild.roles.cache.get(banInfo.roleId);
-          if (member && role) await member.roles.add(role);
-        } catch (err) {}
+
+          if (member && role) {
+            await member.roles.add(role);
+          }
+        } catch (err) {
+          console.error(`역할 복구 에러 (${userId}):`, err);
+        }
+
         delete bansData[guildId][userId];
         hasChanged = true;
       }
     }
   }
-  if (hasChanged) saveData(BANS_FILE, bansData);
+
+  if (hasChanged) {
+    saveData(BANS_FILE, bansData);
+  }
 }
 
 client.on('messageCreate', async (message) => {
@@ -338,7 +351,6 @@ client.on('interactionCreate', async interaction => {
   if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
 
   // 안전한 응답 처리를 위해 선제 deferReply 사용 (타임아웃 방지)
-  const isImageCommand = (commandName === '프로필');
   if (!interaction.deferred && !interaction.replied) {
     try {
       await interaction.deferReply({ ephemeral: false });
@@ -460,6 +472,7 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ content: `<@${targetUser.id}> 님의 경고를 1회 차감했습니다. (현재 ${newWarns}회)` });
     }
 
+    // --- 🛑 [내전정지] 첫 번째 사진의 깔끔한 임베드 디자인 적용 ---
     if (commandName === '내전정지') {
       const targetUser = options.getUser('대상');
       const reason = options.getString('사유') || '사유 미기재';
@@ -474,7 +487,30 @@ client.on('interactionCreate', async interaction => {
         await member.roles.remove(targetRole);
       }
 
-      return await interaction.editReply({ content: `🚫 <@${targetUser.id}> 님의 내전 역할을 회수하여 정지 처리했습니다. (사유: ${reason})` });
+      // 7일 뒤 자동 해제 시간 계산 및 저장
+      const unbanTime = Date.now() + (7 * 24 * 60 * 60 * 1000);
+      if (!bansData[guildId]) bansData[guildId] = {};
+      bansData[guildId][targetUser.id] = {
+        roleId: targetRole.id,
+        unbanTime: unbanTime
+      };
+      saveData(BANS_FILE, bansData);
+
+      const unbanDateStr = new Date(unbanTime).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+
+      // 첫 번째 사진과 동일한 임베드 박스 디자인 생성
+      const embed = new EmbedBuilder()
+        .setColor('#ED4245')
+        .setTitle('🚫 내전 참가 정지 (7일)')
+        .setDescription(`<@${targetUser.id}> 님의 '${CIVIL_WAR_ROLE_NAME}' 역할을 회수했습니다.`)
+        .addFields(
+          { name: '사유', value: reason },
+          { name: '자동 해제 일시', value: unbanDateStr }
+        )
+        .setFooter({ text: '일주일 뒤 자동으로 내전 역할이 복구됩니다.' })
+        .setTimestamp();
+
+      return await interaction.editReply({ embeds: [embed] });
     }
 
     if (commandName === '내전정지해제') {
@@ -490,7 +526,18 @@ client.on('interactionCreate', async interaction => {
         await member.roles.add(targetRole);
       }
 
-      return await interaction.editReply({ content: `🟢 <@${targetUser.id}> 님의 내전 정지를 해제했습니다.` });
+      if (bansData[guildId] && bansData[guildId][targetUser.id]) {
+        delete bansData[guildId][targetUser.id];
+        saveData(BANS_FILE, bansData);
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor('#57F287')
+        .setTitle('🟢 내전 참가 정지 해제')
+        .setDescription(`<@${targetUser.id}> 님의 내전 정지가 해제되어 역할이 복구되었습니다.`)
+        .setTimestamp();
+
+      return await interaction.editReply({ embeds: [embed] });
     }
 
     if (commandName === '내전인원') {
