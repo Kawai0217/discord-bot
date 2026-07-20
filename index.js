@@ -352,10 +352,10 @@ client.on('messageCreate', async (message) => {
 
 client.on('interactionCreate', async interaction => {
   if (interaction.isButton()) {
-    const { customId, channel, user, member, guild } = interaction;
+    const { customId, channel, user, member, guild, message } = interaction;
     
     // 개별 비공개 텍스트 채널 방식의 티켓 생성 처리
-    if (customId.startsWith('ticket_') && customId !== 'ticket_close' && customId !== 'ticket_delete') {
+    if (customId.startsWith('ticket_') && customId !== 'ticket_close' && customId !== 'ticket_reopen' && customId !== 'ticket_delete') {
       const ticketTypeMap = {
         'ticket_server': '서버문의',
         'ticket_report': '신고분쟁',
@@ -370,7 +370,6 @@ client.on('interactionCreate', async interaction => {
       await interaction.deferReply({ ephemeral: true });
 
       try {
-        // 부모 카테고리 내에 비공개 텍스트 채널 생성 및 관리자 전체 자동 권한 부여
         const permissionOverwrites = [
           {
             id: guild.id, // @everyone 보기 권한 차단
@@ -394,7 +393,6 @@ client.on('interactionCreate', async interaction => {
           }
         ];
 
-        // 서버 내 관리자 권한을 가진 유저/역할들에게도 채널 권한 미리 부여
         try {
           await guild.members.fetch();
           const admins = guild.members.cache.filter(m => m.permissions.has(PermissionFlagsBits.Administrator) && !m.user.bot);
@@ -442,15 +440,16 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (customId === 'ticket_close') {
-      if (!member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ content: '⚠️ 티켓 마감은 관리자만 할 수 있습니다!', ephemeral: true });
+      const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
+      const userOverwrite = channel.permissionOverwrites.cache.get(user.id);
+      const isTicketOwner = userOverwrite && userOverwrite.allow.has(PermissionFlagsBits.ViewChannel);
+
+      if (!isAdmin && !isTicketOwner) {
+        return interaction.reply({ content: '⚠️ 티켓 닫기는 관리자 또는 티켓을 연 본인만 할 수 있습니다!', ephemeral: true });
       }
 
-      await interaction.reply({ content: '🔒 티켓이 마감되었습니다. (채널은 삭제되지 않으며, 관리자용 삭제 버튼으로 지울 수 있습니다.)', ephemeral: false });
-      
-      // 채널을 삭제하지 않고 유저의 메시지 전송 권한만 막거나 잠금 처리
+      // 메시지 전송 권한 차단
       try {
-        // 티켓을 연 유저 찾기 (채널 권한 오버라이트에서 봇과 관리자 제외한 유저 탐색)
         const overwrites = channel.permissionOverwrites.cache;
         for (const [id, overwrite] of overwrites) {
           if (id !== guild.id && id !== client.user.id && !guild.members.cache.get(id)?.permissions.has(PermissionFlagsBits.Administrator)) {
@@ -459,6 +458,54 @@ client.on('interactionCreate', async interaction => {
         }
       } catch (e) {}
 
+      // 버튼을 '티켓 열기'로 변경
+      const reopenedButtons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('ticket_reopen')
+          .setLabel('🔓 티켓 열기')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('ticket_delete')
+          .setLabel('🗑️ 티켓 삭제 (관리자용)')
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      await interaction.update({ content: '🔒 티켓이 마감(잠금)되었습니다.', components: [reopenedButtons] });
+      return;
+    }
+
+    if (customId === 'ticket_reopen') {
+      const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
+      const userOverwrite = channel.permissionOverwrites.cache.get(user.id);
+      const isTicketOwner = userOverwrite && userOverwrite.allow.has(PermissionFlagsBits.ViewChannel);
+
+      if (!isAdmin && !isTicketOwner) {
+        return interaction.reply({ content: '⚠️ 티켓 열기는 관리자 또는 티켓을 연 본인만 할 수 있습니다!', ephemeral: true });
+      }
+
+      // 메시지 전송 권한 복구 (티켓 참여자 및 관리자)
+      try {
+        const overwrites = channel.permissionOverwrites.cache;
+        for (const [id, overwrite] of overwrites) {
+          if (id !== guild.id && id !== client.user.id) {
+            await channel.permissionOverwrites.edit(id, { SendMessages: true });
+          }
+        }
+      } catch (e) {}
+
+      // 버튼을 다시 '티켓 닫기'로 변경
+      const closedButtons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('ticket_close')
+          .setLabel('🔒 티켓 닫기')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('ticket_delete')
+          .setLabel('🗑️ 티켓 삭제 (관리자용)')
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      await interaction.update({ content: '🔓 티켓이 다시 열렸습니다. 대화를 이어가실 수 있습니다.', components: [closedButtons] });
       return;
     }
 
