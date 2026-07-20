@@ -1,10 +1,22 @@
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
+require('dotenv').config();
+const { 
+  Client, 
+  GatewayIntentBits, 
+  EmbedBuilder, 
+  SlashCommandBuilder, 
+  REST, 
+  Routes, 
+  PermissionFlagsBits 
+} = require('discord.js');
+
+// Render 수면 방지용 HTTP 서버
 http.createServer((req, res) => {
   res.write("Bot is alive!");
   res.end();
 }).listen(process.env.PORT || 10000);
-require('dotenv').config();
-const { Client, GatewayIntentBits, EmbedBuilder, SlashCommandBuilder, REST, Routes } = require('discord.js');
 
 const client = new Client({
   intents: [
@@ -15,10 +27,28 @@ const client = new Client({
   ]
 });
 
+// --- 포인트 데이터 파일 로드 및 저장 함수 ---
+const POINTS_FILE = path.join(__dirname, 'points.json');
+
+function loadPoints() {
+  if (!fs.existsSync(POINTS_FILE)) {
+    fs.writeFileSync(POINTS_FILE, JSON.stringify({}));
+  }
+  try {
+    return JSON.parse(fs.readFileSync(POINTS_FILE, 'utf8'));
+  } catch (e) {
+    return {};
+  }
+}
+
+function savePoints(data) {
+  fs.writeFileSync(POINTS_FILE, JSON.stringify(data, null, 2));
+}
+
 // 내전 참가자 목록 (유저 ID 저장)
 let participants = [];
 
-// 디스코드 역할 이름 매칭 패턴 정의 (오타 및 약칭 모두 대응)
+// 디스코드 역할 이름 매칭 패턴 정의
 const tierInfo = [
   { keywords: ['챌린저', '챌'], code: 'C', priority: 1 },
   { keywords: ['그랜드마스터', '그마'], code: 'GM', priority: 2 },
@@ -38,17 +68,37 @@ const lineKeywords = ['탑', '정글', '미드', '원딜', '서폿'];
 
 // 슬래시 명령어 정의
 const commands = [
+  // 1. 기존 내전 명령어
   new SlashCommandBuilder().setName('내전인원').setDescription('현재 내전 참가자 명단을 티어/역할순으로 확인합니다.'),
   new SlashCommandBuilder().setName('명단초기화').setDescription('참가자 명단을 초기화합니다.'),
+
+  // 2. 포인트 명령어 추가
+  new SlashCommandBuilder()
+    .setName('포인트지급')
+    .setDescription('유저에게 포인트를 지급하거나 차감합니다.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addUserOption(option => 
+      option.setName('대상').setDescription('포인트를 받을 유저').setRequired(true))
+    .addIntegerOption(option => 
+      option.setName('포인트').setDescription('지급할 포인트 (음수 입력 시 차감)').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('포인트')
+    .setDescription('포인트를 확인합니다.')
+    .addUserOption(option => 
+      option.setName('대상').setDescription('조회할 유저 (비워두면 본인 조회)').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('포인트순위')
+    .setDescription('서버 내 포인트 Top 10 순위를 확인합니다.')
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
-  console.log(`🤖 ${client.user.tag} 봇이 티어 자동 감지 개선 모드로 켜졌습니다!`);
+  console.log(`🤖 ${client.user.tag} 봇이 준비 완료되었습니다!`);
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
   try {
-    await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
     const guilds = client.guilds.cache.map(guild => guild.id);
     for (const guildId of guilds) {
       await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: commands });
@@ -82,21 +132,96 @@ client.on('messageCreate', async (message) => {
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === '내전인원') {
-    await interaction.deferReply();
+  const { commandName, guildId, options, user } = interaction;
+  const pointsData = loadPoints();
 
+  if (!pointsData[guildId]) pointsData[guildId] = {};
+
+  // [/내전인원]
+  if (commandName === '내전인원') {
+    await interaction.deferReply();
     const guild = interaction.guild;
     const embed = await buildEmbed(guild);
     await interaction.editReply({ embeds: [embed] });
   }
 
-  if (interaction.commandName === '명단초기화') {
+  // [/명단초기화]
+  if (commandName === '명단초기화') {
     participants = [];
     await interaction.reply('🔄 내전 참가자 명단이 초기화되었습니다!');
   }
+
+  // [/포인트지급] (관리자 전용)
+  if (commandName === '포인트지급') {
+    const targetUser = options.getUser('대상');
+    const amount = options.getInteger('포인트');
+
+    const currentPoints = pointsData[guildId][targetUser.id] || 0;
+    const newPoints = currentPoints + amount;
+
+    pointsData[guildId][targetUser.id] = newPoints;
+    savePoints(pointsData);
+
+    const embed = new EmbedBuilder()
+      .setColor(amount >= 0 ? '#57F287' : '#ED4245')
+      .setTitle('💰 포인트 변동 완료')
+      .setDescription(`<@${targetUser.id}> 님에게 **${amount.toLocaleString()} P**를 ${amount >= 0 ? '지급' : '차감'}했습니다.`)
+      .addFields(
+        { name: '이전 포인트', value: `${currentPoints.toLocaleString()} P`, inline: true },
+        { name: '현재 포인트', value: `${newPoints.toLocaleString()} P`, inline: true }
+      )
+      .setTimestamp();
+
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  // [/포인트] (조회)
+  if (commandName === '포인트') {
+    const targetUser = options.getUser('대상') || user;
+    const userPoints = pointsData[guildId][targetUser.id] || 0;
+
+    const embed = new EmbedBuilder()
+      .setColor('#5865F2')
+      .setAuthor({ name: targetUser.username, iconURL: targetUser.displayAvatarURL() })
+      .setTitle('💳 포인트 조회')
+      .setDescription(`<@${targetUser.id}> 님의 현재 포인트는 **${userPoints.toLocaleString()} P** 입니다.`)
+      .setTimestamp();
+
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  // [/포인트순위] (Top 10)
+  if (commandName === '포인트순위') {
+    const serverPoints = pointsData[guildId] || {};
+    
+    const sortedUsers = Object.keys(serverPoints)
+      .map(userId => ({ userId, points: serverPoints[userId] }))
+      .sort((a, b) => b.points - a.points)
+      .slice(0, 10);
+
+    if (sortedUsers.length === 0) {
+      return interaction.reply({ content: '등록된 포인트 데이터가 없습니다!', ephemeral: true });
+    }
+
+    const medals = ['🥇', '🥈', '🥉'];
+    let rankingText = '';
+
+    sortedUsers.forEach((item, index) => {
+      const rankTag = medals[index] || `**${index + 1}위**`;
+      rankingText += `${rankTag} <@${item.userId}> - **${item.points.toLocaleString()} P**\n`;
+    });
+
+    const embed = new EmbedBuilder()
+      .setColor('#FEE75C')
+      .setTitle('🏆 포인트 순위 Top 10')
+      .setDescription(rankingText)
+      .setTimestamp();
+
+    return interaction.reply({ embeds: [embed] });
+  }
 });
 
-// 명단 생성 및 티어 감지
+// 명단 생성 및 티어 감지 함수
 async function buildEmbed(guild) {
   let description = '';
 
@@ -110,7 +235,7 @@ async function buildEmbed(guild) {
         const member = await guild.members.fetch(userId);
         const userRoleNames = member.roles.cache.map(r => r.name.toLowerCase());
 
-        // 1. 티어 감지 (유연한 키워드 검사)
+        // 1. 티어 감지
         let matchedTier = { code: 'U', priority: 99 };
         
         for (const t of tierInfo) {
@@ -120,7 +245,7 @@ async function buildEmbed(guild) {
 
           if (isMatch) {
             matchedTier = t;
-            break; // 상위 티어부터 순서대로 매칭되면 종료
+            break;
           }
         }
 
@@ -153,10 +278,9 @@ async function buildEmbed(guild) {
       }
     }
 
-    // 티어 높은 순 정렬
+    // 티어 순 정렬
     list.sort((a, b) => a.priority - b.priority);
 
-    // 문구 작성
     list.forEach(p => {
       description += `**[${p.tierCode}]** ${p.displayName} / ${p.lineText}\n`;
     });
