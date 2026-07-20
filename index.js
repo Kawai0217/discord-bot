@@ -70,11 +70,11 @@ const voiceTimeTracker = {};
 
 // 티어 정보 정의
 const tierInfo = [
-  { keywords: ['챌린저', '챌'], code: 'C', name: 'Challenger', color: '#F4C430' },
-  { keywords: ['그랜드마스터', '그마'], code: 'GM', name: 'Grandmaster', color: '#CD7F32' },
-  { keywords: ['마스터', '마'], code: 'M', name: 'Master', color: '#9932CC' },
+  { keywords: ['챌린저', '챌'], code: 'C', name: 'Challenger', color: '#FFD700' },
+  { keywords: ['그랜드마스터', '그마'], code: 'GM', name: 'Grandmaster', color: '#FF8C00' },
+  { keywords: ['마스터', '마'], code: 'M', name: 'Master', color: '#BA55D3' },
   { keywords: ['다이아몬드', '다이아', '다'], code: 'D', name: 'Diamond', color: '#00BFFF' },
-  { keywords: ['에메랄드', '에메', '에'], code: 'E', name: 'Emerald', color: '#2E8B57' },
+  { keywords: ['에메랄드', '에메', '에'], code: 'E', name: 'Emerald', color: '#00FA9A' },
   { keywords: ['플래티넘', '플레티넘', '플래', '플레', '플'], code: 'P', name: 'Platinum', color: '#20B2AA' },
   { keywords: ['골드', '골'], code: 'G', name: 'Gold', color: '#FFD700' },
   { keywords: ['실버', '실'], code: 'S', name: 'Silver', color: '#C0C0C0' },
@@ -123,7 +123,7 @@ async function getUserProfileInfo(guild, user) {
   }
 }
 
-// 🎨 background.png와 font.ttf를 활용한 프로필 카드 생성 함수
+// 🎨 글씨 크기를 키우고 가독성을 극대화한 프로필 카드 생성 함수
 async function generateProfileCard(user, displayName, matchedTier, lineText, points, warns) {
   const canvas = createCanvas(800, 450);
   const ctx = canvas.getContext('2d');
@@ -133,9 +133,21 @@ async function generateProfileCard(user, displayName, matchedTier, lineText, poi
     const bgImage = await loadImage(path.join(__dirname, 'background.png'));
     ctx.drawImage(bgImage, 0, 0, 800, 450);
   } catch (e) {
-    ctx.fillStyle = '#111318';
+    ctx.fillStyle = '#ffb6c1';
     ctx.fillRect(0, 0, 800, 450);
   }
+
+  // 글씨가 핑크 배경에 묻히지 않도록 글자에 어두운 테두리(그림자) 효과 주는 헬퍼 함수
+  const drawTextWithShadow = (text, x, y, font, fillColor) => {
+    ctx.font = font;
+    // 테두리 (가독성 강화)
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 4;
+    ctx.strokeText(text, x, y);
+    // 본체 글씨
+    ctx.fillStyle = fillColor;
+    ctx.fillText(text, x, y);
+  };
 
   // 2. 프로필 아바타 원형 그리기
   try {
@@ -150,9 +162,9 @@ async function generateProfileCard(user, displayName, matchedTier, lineText, poi
     ctx.restore();
 
     ctx.strokeStyle = matchedTier.color;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.arc(105, 135, 56, 0, Math.PI * 2, true);
+    ctx.arc(105, 135, 57, 0, Math.PI * 2, true);
     ctx.stroke();
   } catch (e) {
     ctx.fillStyle = '#444';
@@ -161,50 +173,29 @@ async function generateProfileCard(user, displayName, matchedTier, lineText, poi
     ctx.fill();
   }
 
-  // 3. 둥근모꼴 폰트로 텍스트 배치
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '26px CustomFont';
-  ctx.fillText(displayName, 185, 115);
+  // 3. 닉네임 (크기 대폭 키움: 34px)
+  drawTextWithShadow(displayName, 185, 115, '34px CustomFont', '#ffffff');
 
-  ctx.font = '18px CustomFont';
-  ctx.fillStyle = '#d0d0d0';
-  ctx.fillText(`티어 : ${matchedTier.name} [${matchedTier.code}]`, 185, 155);
-  ctx.fillText(`주요 라인 : ${lineText}`, 185, 190);
+  // 4. 티어 & 주요 라인 (크기 키움: 22px)
+  drawTextWithShadow(`티어 : ${matchedTier.name} [${matchedTier.code}]`, 185, 160, '22px CustomFont', '#00ffff');
+  drawTextWithShadow(`주요 라인 : ${lineText}`, 185, 200, '22px CustomFont', '#ffeb3b');
 
-  ctx.font = '18px CustomFont';
-  ctx.fillStyle = '#57F287';
-  ctx.fillText(`보유 포인트 : ${points.toLocaleString()} P`, 185, 270);
-
-  ctx.fillStyle = warns > 0 ? '#ED4245' : '#ffffff';
-  ctx.fillText(`누적 경고 : ${warns}회`, 480, 270);
+  // 5. 포인트 & 경고 (크기 키움: 22px)
+  drawTextWithShadow(`보유 포인트 : ${points.toLocaleString()} P`, 185, 285, '22px CustomFont', '#76ff03');
+  
+  const warnColor = warns > 0 ? '#ff1744' : '#ffffff';
+  drawTextWithShadow(`누적 경고 : ${warns}회`, 490, 285, '22px CustomFont', warnColor);
 
   return canvas.toBuffer();
 }
 
-// 슬래시 명령어 등록 (설정 누락 오류 방지 완료)
+// 슬래시 명령어 등록
 const commands = [
-  new SlashCommandBuilder()
-    .setName('프로필')
-    .setDescription('자신 또는 다른 유저의 레트로 프로필 카드를 확인합니다.')
-    .addUserOption(option => option.setName('대상').setDescription('조회할 유저').setRequired(false)),
-  
-  new SlashCommandBuilder()
-    .setName('출석')
-    .setDescription('출석체크를 하고 포인트를 받습니다!'),
-  
-  new SlashCommandBuilder()
-    .setName('포인트')
-    .setDescription('포인트를 확인합니다.')
-    .addUserOption(option => option.setName('대상').setDescription('조회할 유저').setRequired(false)),
-  
-  new SlashCommandBuilder()
-    .setName('포인트순위')
-    .setDescription('포인트 순위 Top 10을 확인합니다.'),
-  
-  new SlashCommandBuilder()
-    .setName('경고확인')
-    .setDescription('경고 횟수를 확인합니다.')
-    .addUserOption(option => option.setName('대상').setDescription('조회할 유저').setRequired(false)),
+  new SlashCommandBuilder().setName('프로필').setDescription('레트로 프로필 카드를 확인합니다.').addUserOption(option => option.setName('대상').setDescription('조회할 유저').setRequired(false)),
+  new SlashCommandBuilder().setName('출석').setDescription('출석체크를 하고 포인트를 받습니다!'),
+  new SlashCommandBuilder().setName('포인트').setDescription('포인트를 확인합니다.').addUserOption(option => option.setName('대상').setRequired(false)),
+  new SlashCommandBuilder().setName('포인트순위').setDescription('포인트 순위 Top 10을 확인합니다.'),
+  new SlashCommandBuilder().setName('경고확인').setDescription('경고 횟수를 확인합니다.').addUserOption(option => option.setName('대상').setRequired(false)),
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
