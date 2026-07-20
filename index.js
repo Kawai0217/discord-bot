@@ -76,18 +76,7 @@ const lineKeywords = ['탑', '정글', '미드', '원딜', '서폿'];
 
 // 슬래시 명령어 정의
 const commands = [
-  new SlashCommandBuilder().setName('내전인원').setDescription('현재 내전 참가자 명단을 티어/역할순으로 확인합니다.'),
-  new SlashCommandBuilder().setName('명단초기화').setDescription('참가자 명단을 초기화합니다.'),
-
-  new SlashCommandBuilder()
-    .setName('포인트지급')
-    .setDescription('유저에게 포인트를 지급하거나 차감합니다.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addUserOption(option => 
-      option.setName('대상').setDescription('포인트를 받을 유저').setRequired(true))
-    .addIntegerOption(option => 
-      option.setName('포인트').setDescription('지급할 포인트 (음수 입력 시 차감)').setRequired(true)),
-
+  // --- 일반 유저 가능 명령어 ---
   new SlashCommandBuilder()
     .setName('포인트')
     .setDescription('포인트를 확인합니다.')
@@ -99,8 +88,44 @@ const commands = [
     .setDescription('서버 내 포인트 Top 10 순위를 확인합니다.'),
 
   new SlashCommandBuilder()
+    .setName('경고확인')
+    .setDescription('유저의 현재 경고 횟수를 확인합니다.')
+    .addUserOption(option => 
+      option.setName('대상').setDescription('조회할 유저 (비워두면 본인 조회)').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('상점')
+    .setDescription('포인트로 구매 가능한 역할 상점 목록을 확인합니다.'),
+
+  new SlashCommandBuilder()
+    .setName('역할구매')
+    .setDescription('포인트를 사용하여 상점의 역할을 구매합니다.')
+    .addRoleOption(option =>
+      option.setName('역할').setDescription('구매할 상점 역할을 선택하세요.').setRequired(true)),
+
+  // --- 관리자 전용 명령어 (PermissionFlagsBits.Administrator 적용) ---
+  new SlashCommandBuilder()
+    .setName('내전인원')
+    .setDescription('현재 내전 참가자 명단을 티어/역할순으로 확인합니다. (관리자 전용)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder()
+    .setName('명단초기화')
+    .setDescription('참가자 명단을 초기화합니다. (관리자 전용)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder()
+    .setName('포인트지급')
+    .setDescription('유저에게 포인트를 지급하거나 차감합니다. (관리자 전용)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addUserOption(option => 
+      option.setName('대상').setDescription('포인트를 받을 유저').setRequired(true))
+    .addIntegerOption(option => 
+      option.setName('포인트').setDescription('지급할 포인트 (음수 입력 시 차감)').setRequired(true)),
+
+  new SlashCommandBuilder()
     .setName('경고')
-    .setDescription('유저에게 경고를 부여합니다. (3회 누적 시 자동 차단)')
+    .setDescription('유저에게 경고를 부여합니다. (3회 누적 시 자동 차단) (관리자 전용)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(option => 
       option.setName('대상').setDescription('경고를 줄 유저').setRequired(true))
@@ -109,20 +134,14 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('경고차감')
-    .setDescription('유저의 경고를 1회 차감합니다.')
+    .setDescription('유저의 경고를 1회 차감합니다. (관리자 전용)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(option => 
       option.setName('대상').setDescription('경고를 차감할 유저').setRequired(true)),
 
   new SlashCommandBuilder()
-    .setName('경고확인')
-    .setDescription('유저의 현재 경고 횟수를 확인합니다.')
-    .addUserOption(option => 
-      option.setName('대상').setDescription('조회할 유저 (비워두면 본인 조회)').setRequired(false)),
-
-  new SlashCommandBuilder()
     .setName('내전정지')
-    .setDescription('유저의 내전 역할을 7일 동안 박탈합니다.')
+    .setDescription('유저의 내전 역할을 7일 동안 박탈합니다. (관리자 전용)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(option => 
       option.setName('대상').setDescription('내전 정지할 유저').setRequired(true))
@@ -131,15 +150,10 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('내전정지해제')
-    .setDescription('유저의 내전 정지를 즉시 해제하고 역할을 다시 지급합니다.')
+    .setDescription('유저의 내전 정지를 즉시 해제하고 역할을 다시 지급합니다. (관리자 전용)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(option => 
       option.setName('대상').setDescription('정지 해제할 유저').setRequired(true)),
-
-  // --- 상점 관련 명령어 ---
-  new SlashCommandBuilder()
-    .setName('상점')
-    .setDescription('포인트로 구매 가능한 역할 상점 목록을 확인합니다.'),
 
   new SlashCommandBuilder()
     .setName('상점등록')
@@ -157,13 +171,7 @@ const commands = [
     .setDescription('상점에서 역할을 삭제합니다. (관리자 전용)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addRoleOption(option =>
-      option.setName('역할').setDescription('상점에서 삭제할 역할을 선택하세요.').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('역할구매')
-    .setDescription('포인트를 사용하여 상점의 역할을 구매합니다.')
-    .addRoleOption(option =>
-      option.setName('역할').setDescription('구매할 상점 역할을 선택하세요.').setRequired(true))
+      option.setName('역할').setDescription('상점에서 삭제할 역할을 선택하세요.').setRequired(true))
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
