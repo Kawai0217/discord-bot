@@ -354,7 +354,7 @@ client.on('interactionCreate', async interaction => {
   if (interaction.isButton()) {
     const { customId, channel, user, member, guild } = interaction;
     
-    // 개별 비공개 텍스트 채널 방식의 티켓 생성 처리
+    // 문의-티켓 채널 내에서 '비공개 스레드(Private Thread)' 생성 처리
     if (customId.startsWith('ticket_') && customId !== 'ticket_close' && customId !== 'ticket_delete') {
       const ticketTypeMap = {
         'ticket_server': '서버문의',
@@ -365,43 +365,25 @@ client.on('interactionCreate', async interaction => {
       };
 
       const typeName = ticketTypeMap[customId] || '기타문의';
-      const channelName = `${user.username.toLowerCase().replace(/[^a-z0-9]/g, '')}-${typeName}-티켓`;
+      const threadName = `${user.username}-${typeName}-티켓`;
 
       await interaction.deferReply({ ephemeral: true });
 
       try {
-        // 부모 카테고리 내에 비공개 텍스트 채널 생성
-        const ticketChannel = await guild.channels.create({
-          name: channelName,
-          type: ChannelType.GuildText,
-          parent: channel.parentId || null,
-          permissionOverwrites: [
-            {
-              id: guild.id, // @everyone (일반 유저) 보기 권한 완전 차단
-              deny: [PermissionFlagsBits.ViewChannel]
-            },
-            {
-              id: user.id, // 티켓을 연 본인 허용
-              allow: [
-                PermissionFlagsBits.ViewChannel,
-                PermissionFlagsBits.SendMessages,
-                PermissionFlagsBits.ReadMessageHistory
-              ]
-            },
-            {
-              id: client.user.id, // 봇 허용
-              allow: [
-                PermissionFlagsBits.ViewChannel,
-                PermissionFlagsBits.SendMessages,
-                PermissionFlagsBits.ManageChannels
-              ]
-            }
-          ]
+        // 비공개 스레드 생성 (일반 유저는 목록에 아예 보이지 않음)
+        const thread = await channel.threads.create({
+          name: threadName,
+          autoArchiveDuration: 1440,
+          type: ChannelType.PrivateThread,
+          reason: '유저 비공개 문의 티켓 생성'
         });
+
+        // 티켓을 연 유저를 스레드 멤버로 확실하게 추가
+        await thread.members.add(user.id).catch(() => {});
 
         const welcomeEmbed = new EmbedBuilder()
           .setColor('#5865F2')
-          .setTitle(`🎫 ${typeName} 채널입니다.`)
+          .setTitle(`🎫 ${typeName} 티켓입니다.`)
           .setDescription(`<@${user.id}> 님, 문의 내용을 남겨주시면 관리자가 확인 후 답변해 드립니다.\n\n업무가 완료되면 아래 버튼을 눌러 티켓을 닫아주세요.`);
 
         const ticketButtons = new ActionRowBuilder().addComponents(
@@ -415,25 +397,23 @@ client.on('interactionCreate', async interaction => {
             .setStyle(ButtonStyle.Danger)
         );
 
-        await ticketChannel.send({ content: `<@${user.id}>`, embeds: [welcomeEmbed], components: [ticketButtons] });
-        return await interaction.editReply({ content: `✅ 비공개 티켓 채널이 생성되었습니다: <#${ticketChannel.id}>` });
+        await thread.send({ content: `<@${user.id}>`, embeds: [welcomeEmbed], components: [ticketButtons] });
+        return await interaction.editReply({ content: `✅ 비공개 티켓 스레드가 생성되었습니다: <#${thread.id}>` });
       } catch (err) {
-        console.error('채널 생성 오류:', err);
-        return await interaction.editReply({ content: '⚠️ 티켓 채널 생성 중 오류가 발생했습니다.' });
+        console.error('비공개 스레드 생성 오류:', err);
+        return await interaction.editReply({ content: '⚠️ 비공개 티켓 스레드 생성 중 오류가 발생했습니다. (서버 부스트 레벨이나 권한을 확인해주세요.)' });
       }
     }
 
     if (customId === 'ticket_close') {
-      if (!member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ content: '⚠️ 티켓 마감은 관리자만 할 수 있습니다!', ephemeral: true });
+      if (!channel.isThread()) {
+        return interaction.reply({ content: '⚠️ 스레드 채널에서만 사용할 수 있습니다.', ephemeral: true });
       }
 
-      await interaction.reply({ content: '🔒 티켓이 마감되었습니다. 5초 뒤에 채널이 삭제됩니다.', ephemeral: false });
-      setTimeout(async () => {
-        try {
-          await channel.delete();
-        } catch (e) {}
-      }, 5000);
+      await interaction.reply({ content: '🔒 티켓이 닫혔습니다. 관리자가 확인 후 삭제할 수 있습니다.', ephemeral: false });
+      try {
+        await channel.setArchived(true);
+      } catch (e) {}
       return;
     }
 
@@ -442,10 +422,12 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ content: '⚠️ 티켓 삭제는 관리자만 할 수 있습니다!', ephemeral: true });
       }
 
-      await interaction.reply({ content: '🗑️ 5초 뒤에 티켓 채널이 영구 삭제됩니다...', ephemeral: false });
+      await interaction.reply({ content: '🗑️ 5초 뒤에 티켓 스레드가 영구 삭제됩니다...', ephemeral: false });
       setTimeout(async () => {
         try {
-          await channel.delete();
+          if (channel.isThread()) {
+            await channel.delete();
+          }
         } catch (e) {}
       }, 5000);
       return;
@@ -650,13 +632,13 @@ client.on('interactionCreate', async interaction => {
         .setColor('#5865F2')
         .setTitle('✉️ 문의하기')
         .setDescription(
-          '아래 버튼 중 문의 유형을 골라 누르면, 관리자와 대화할 수 있는 비공개 채널이 생성됩니다.\n\n' +
+          '아래 버튼 중 문의 유형을 골라 누르면, 관리자와 대화할 수 있는 **비공개 스레드**가 생성됩니다.\n\n' +
           '🏠 서버 문의\n' +
           '🚨 유저 신고 및 분쟁 관련\n' +
           '🪪 명의 인증\n' +
           '🏆 이벤트 문의\n' +
           '💬 기타 문의\n\n' +
-          '생성된 채널 이름에 문의 분류가 표시돼 관리자가 바로 확인할 수 있어요.'
+          '생성된 스레드 이름에 문의 분류가 표시돼 관리자가 바로 확인할 수 있어요.'
         );
 
       const row1 = new ActionRowBuilder().addComponents(
@@ -1038,7 +1020,7 @@ client.on('interactionCreate', async interaction => {
         .setDescription(`<@${targetUser.id}> 님의 '${CIVIL_WAR_ROLE_NAME}' 역할을 회수했습니다.`)
         .addFields(
           { name: '사유', value: reason },
-          { name: '자동 해제 일시', value: unDateStr }
+          { name: '자동 해제 일시', value: unbanDateStr }
         )
         .setFooter({ text: '일주일 뒤 자동으로 내전 역할이 복구됩니다.' })
         .setTimestamp();
