@@ -95,15 +95,17 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('상점')
-    .setDescription('포인트로 구매 가능한 역할 상점 목록을 확인합니다.'),
+    .setDescription('포인트로 구매 가능한 상점 목록을 확인합니다.'),
 
   new SlashCommandBuilder()
-    .setName('역할구매')
-    .setDescription('포인트를 사용하여 상점의 역할을 구매합니다.')
-    .addRoleOption(option =>
-      option.setName('역할').setDescription('구매할 상점 역할을 선택하세요.').setRequired(true)),
+    .setName('상점구매')
+    .setDescription('포인트를 사용하여 상점의 상품을 구매합니다.')
+    .addStringOption(option =>
+      option.setName('상품이름')
+        .setDescription('구매할 상품이름(경고차감권, 커스텀역할, 강의권 또는 등록된 역할)을 입력하세요.')
+        .setRequired(true)),
 
-  // --- 관리자 전용 명령어 (PermissionFlagsBits.Administrator 적용) ---
+  // --- 관리자 전용 명령어 ---
   new SlashCommandBuilder()
     .setName('내전인원')
     .setDescription('현재 내전 참가자 명단을 티어/역할순으로 확인합니다. (관리자 전용)')
@@ -125,7 +127,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('경고')
-    .setDescription('유저에게 경고를 부여합니다. (3회 누적 시 자동 차단) (관리자 전용)')
+    .setDescription('유저에게 경고를 부여합니다. (관리자 전용)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(option => 
       option.setName('대상').setDescription('경고를 줄 유저').setRequired(true))
@@ -150,7 +152,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('내전정지해제')
-    .setDescription('유저의 내전 정지를 즉시 해제하고 역할을 다시 지급합니다. (관리자 전용)')
+    .setDescription('유저의 내전 정지를 즉시 해제합니다. (관리자 전용)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(option => 
       option.setName('대상').setDescription('정지 해제할 유저').setRequired(true)),
@@ -189,7 +191,6 @@ client.once('ready', async () => {
     console.error('명령어 등록 오류:', error);
   }
 
-  // 1분마다 정지 만료 유저 체크하여 역할 자동 복구
   setInterval(checkExpiredBans, 60 * 1000);
 });
 
@@ -213,7 +214,6 @@ async function checkExpiredBans() {
 
           if (member && role) {
             await member.roles.add(role);
-            console.log(`[내전정지 해제] ${member.user.tag} 님에게 ${role.name} 역할을 다시 부여했습니다.`);
           }
         } catch (err) {
           console.error(`역할 복구 에러 (${userId}):`, err);
@@ -227,6 +227,33 @@ async function checkExpiredBans() {
 
   if (hasChanged) {
     saveData(BANS_FILE, bansData);
+  }
+}
+
+// 서버 대표(Owner)에게 DM 알림을 보내는 함수
+async function notifyOwner(guild, buyer, itemName, price, extraInfo = '') {
+  try {
+    const owner = await guild.fetchOwner();
+    if (!owner) return;
+
+    const embed = new EmbedBuilder()
+      .setColor('#5865F2')
+      .setTitle('🛒 상점 상품 구매 알림')
+      .setDescription(`서버 **[${guild.name}]**에서 새로운 상품 구매가 발생했습니다!`)
+      .addFields(
+        { name: '구매자', value: `<@${buyer.id}> (${buyer.tag})`, inline: true },
+        { name: '구매 상품', value: `**${itemName}**`, inline: true },
+        { name: '결제 금액', value: `**${price.toLocaleString()} P**`, inline: true }
+      );
+
+    if (extraInfo) {
+      embed.addFields({ name: '추가 정보', value: extraInfo });
+    }
+
+    embed.setTimestamp();
+    await owner.send({ embeds: [embed] });
+  } catch (err) {
+    console.error('서버 대표 DM 전송 실패:', err);
   }
 }
 
@@ -265,7 +292,8 @@ client.on('interactionCreate', async interaction => {
   if (!bansData[guildId]) bansData[guildId] = {};
 
   const shopData = loadData(SHOP_FILE);
-  if (!shopData[guildId]) shopData[guildId] = {};
+  if (!shopData[guildId]) shopData[guildId] = { items: {}, userTicketCounts: {} };
+  if (!shopData[guildId].userTicketCounts) shopData[guildId].userTicketCounts = {};
 
   // [/내전인원]
   if (commandName === '내전인원') {
@@ -375,7 +403,7 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ embeds: [embed] });
       } catch (err) {
         return interaction.reply({ 
-          content: `⚠️ <@${targetUser.id}> 님의 경고가 3회가 되었지만 차단에 실패했습니다. (봇 역할 순위 확인 필요)`, 
+          content: `⚠️ <@${targetUser.id}> 님의 경고가 3회가 되었지만 차단에 실패했습니다.`, 
           ephemeral: true 
         });
       }
@@ -389,7 +417,6 @@ client.on('interactionCreate', async interaction => {
         { name: '현재 경고 횟수', value: `**${currentWarns}** / 3 회`, inline: true },
         { name: '사유', value: reason, inline: true }
       )
-      .setFooter({ text: '경고 3회 누적 시 서버에서 자동으로 차단됩니다.' })
       .setTimestamp();
 
     return interaction.reply({ embeds: [embed] });
@@ -446,17 +473,11 @@ client.on('interactionCreate', async interaction => {
       const targetRole = guild.roles.cache.find(r => r.name === CIVIL_WAR_ROLE_NAME);
 
       if (!targetRole) {
-        return interaction.reply({ 
-          content: `⚠️ 서버에서 **'${CIVIL_WAR_ROLE_NAME}'** 역할을 찾을 수 없습니다.`, 
-          ephemeral: true 
-        });
+        return interaction.reply({ content: `⚠️ 서버에서 **'${CIVIL_WAR_ROLE_NAME}'** 역할을 찾을 수 없습니다.`, ephemeral: true });
       }
 
       if (!member.roles.cache.has(targetRole.id)) {
-        return interaction.reply({ 
-          content: `<@${targetUser.id}> 님은 이미 **'${CIVIL_WAR_ROLE_NAME}'** 역할을 가지고 있지 않습니다.`, 
-          ephemeral: true 
-        });
+        return interaction.reply({ content: `<@${targetUser.id}> 님은 이미 역할을 가지고 있지 않습니다.`, ephemeral: true });
       }
 
       await member.roles.remove(targetRole);
@@ -480,13 +501,11 @@ client.on('interactionCreate', async interaction => {
           { name: '사유', value: reason },
           { name: '자동 해제 일시', value: `**${unbanDateStr}**` }
         )
-        .setFooter({ text: '일주일 뒤 자동으로 내전 역할이 복구됩니다.' })
         .setTimestamp();
 
       return interaction.reply({ embeds: [embed] });
 
     } catch (err) {
-      console.error('내전 정지 에러:', err);
       return interaction.reply({ content: '⚠️ 내전 정지 처리 중 오류가 발생했습니다.', ephemeral: true });
     }
   }
@@ -514,13 +533,12 @@ client.on('interactionCreate', async interaction => {
       const embed = new EmbedBuilder()
         .setColor('#57F287')
         .setTitle('🟢 내전 정지 조기 해제')
-        .setDescription(`<@${targetUser.id}> 님의 내전 정지를 즉시 해제하고 **'${targetRole ? targetRole.name : '내전'}'** 역할을 다시 부여했습니다.`)
+        .setDescription(`<@${targetUser.id}> 님의 내전 정지를 해제했습니다.`)
         .setTimestamp();
 
       return interaction.reply({ embeds: [embed] });
 
     } catch (err) {
-      console.error('내전 정지 해제 에러:', err);
       return interaction.reply({ content: '⚠️ 내전 정지 해제 중 오류가 발생했습니다.', ephemeral: true });
     }
   }
@@ -535,9 +553,11 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ content: '⚠️ 가격은 1 포인트 이상이어야 합니다.', ephemeral: true });
     }
 
-    shopData[guildId][role.id] = {
+    if (!shopData[guildId].items) shopData[guildId].items = {};
+
+    shopData[guildId].items[role.id] = {
       roleId: role.id,
-      roleName: role.name,
+      name: role.name,
       price: price,
       description: description
     };
@@ -561,11 +581,11 @@ client.on('interactionCreate', async interaction => {
   if (commandName === '상점삭제') {
     const role = options.getRole('역할');
 
-    if (!shopData[guildId][role.id]) {
+    if (!shopData[guildId].items || !shopData[guildId].items[role.id]) {
       return interaction.reply({ content: `⚠️ <@&${role.id}> 역할은 상점에 등록되어 있지 않습니다.`, ephemeral: true });
     }
 
-    delete shopData[guildId][role.id];
+    delete shopData[guildId].items[role.id];
     saveData(SHOP_FILE, shopData);
 
     const embed = new EmbedBuilder()
@@ -579,43 +599,150 @@ client.on('interactionCreate', async interaction => {
 
   // --- [/상점] ---
   if (commandName === '상점') {
-    const items = Object.values(shopData[guildId]);
+    const itemsObj = shopData[guildId].items || {};
+    const items = Object.values(itemsObj);
 
-    if (items.length === 0) {
-      return interaction.reply({ content: '🛒 현재 상점에 등록된 물품이 없습니다. 관리자에게 문의하세요!', ephemeral: true });
+    const userCounts = shopData[guildId].userTicketCounts || {};
+    const myBuyCount = userCounts[user.id] || 0;
+    const nextTicketPrice = 3000 + (myBuyCount * 2000);
+
+    let itemListText = `**1. 🎟️ 경고 차감권** - \`${nextTicketPrice.toLocaleString()} P\` *(내 구매 횟수: ${myBuyCount}회)*\n┗ 구매 즉시 누적된 경고 1회가 자동으로 차감됩니다. (재구매 시마다 2,000 P씩 증가)\n\n`;
+    itemListText += `**2. 🏷️ 커스텀역할** - \`30,000 P\`\n┗ 본인이 원하는 커스텀 역할을 신청할 수 있습니다.\n\n`;
+    itemListText += `**3. 📚 강의권** - \`5,000 P\`\n┗ 강의를 받을 수 있는 수강권을 획득합니다.\n\n`;
+
+    let idxOffset = 4;
+    if (items.length > 0) {
+      items.forEach((item) => {
+        itemListText += `**${idxOffset}. <@&${item.roleId}>** - \`${item.price.toLocaleString()} P\`\n┗ ${item.description}\n\n`;
+        idxOffset++;
+      });
     }
-
-    let itemListText = '';
-    items.forEach((item, idx) => {
-      itemListText += `**${idx + 1}. <@&${item.roleId}>** - \`${item.price.toLocaleString()} P\`\n┗ ${item.description}\n\n`;
-    });
 
     const userPoints = pointsData[guildId][user.id] || 0;
 
     const embed = new EmbedBuilder()
       .setColor('#FEE75C')
-      .setTitle('🛒 포인트 역할 상점')
+      .setTitle('🛒 포인트 상점')
       .setDescription(itemListText)
       .addFields({ name: '💳 내 보유 포인트', value: `**${userPoints.toLocaleString()} P**` })
-      .setFooter({ text: '구매를 원하시면 /역할구매 명령어를 사용해주세요!' })
+      .setFooter({ text: '구매를 원하시면 /상점구매 명령어를 사용해주세요! (예: /상점구매 상품이름: 커스텀역할)' })
       .setTimestamp();
 
     return interaction.reply({ embeds: [embed] });
   }
 
-  // --- [/역할구매] ---
-  if (commandName === '역할구매') {
-    const role = options.getRole('역할');
-    const shopItem = shopData[guildId][role.id];
+  // --- [/상점구매] ---
+  if (commandName === '상점구매') {
+    const query = options.getString('상품이름').trim().toLowerCase();
+    const userPoints = pointsData[guildId][user.id] || 0;
+
+    if (!shopData[guildId].userTicketCounts) shopData[guildId].userTicketCounts = {};
+
+    // 1. 경고 차감권 구매
+    if (query === '경고차감권' || query === '경고 차감권') {
+      const currentWarns = warningsData[guildId][user.id] || 0;
+
+      if (currentWarns <= 0) {
+        return interaction.reply({ content: '⚠️ 현재 차감될 경고가 없습니다! (경고 0회)', ephemeral: true });
+      }
+
+      const buyCount = shopData[guildId].userTicketCounts[user.id] || 0;
+      const price = 3000 + (buyCount * 2000);
+
+      if (userPoints < price) {
+        return interaction.reply({ content: `⚠️ 포인트가 부족합니다! (필요: **${price.toLocaleString()} P** / 보유: **${userPoints.toLocaleString()} P**)`, ephemeral: true });
+      }
+
+      pointsData[guildId][user.id] = userPoints - price;
+      saveData(POINTS_FILE, pointsData);
+
+      shopData[guildId].userTicketCounts[user.id] = buyCount + 1;
+      saveData(SHOP_FILE, shopData);
+
+      const newWarns = currentWarns - 1;
+      warningsData[guildId][user.id] = newWarns;
+      saveData(WARNINGS_FILE, warningsData);
+
+      await notifyOwner(guild, user, '경고 차감권', price, `남은 경고: ${newWarns}회`);
+
+      const embed = new EmbedBuilder()
+        .setColor('#57F287')
+        .setTitle('🎟️ 경고 차감권 구매 완료!')
+        .setDescription(`<@${user.id}> 님이 **경고 차감권**을 사용하여 경고가 **1회** 차감되었습니다.`)
+        .addFields(
+          { name: '사용한 포인트', value: `-${price.toLocaleString()} P`, inline: true },
+          { name: '남은 포인트', value: `${(userPoints - price).toLocaleString()} P`, inline: true },
+          { name: '현재 경고 횟수', value: `**${newWarns}회**`, inline: true }
+        )
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    // 2. 커스텀역할 구매 (30,000 P)
+    if (query === '커스텀역할' || query === '커스텀 역할') {
+      const price = 30000;
+
+      if (userPoints < price) {
+        return interaction.reply({ content: `⚠️ 포인트가 부족합니다! (필요: **30,000 P** / 보유: **${userPoints.toLocaleString()} P**)`, ephemeral: true });
+      }
+
+      pointsData[guildId][user.id] = userPoints - price;
+      saveData(POINTS_FILE, pointsData);
+
+      await notifyOwner(guild, user, '커스텀역할', price, '유저가 커스텀 역할을 신청했습니다. 개별 문의를 확인해주세요!');
+
+      const embed = new EmbedBuilder()
+        .setColor('#57F287')
+        .setTitle('🏷️ 커스텀역할 구매 완료!')
+        .setDescription(`<@${user.id}> 님이 **커스텀역할**을 구매하셨습니다! 서버 관리자(대표)에게 알림이 전송되었습니다.`)
+        .addFields(
+          { name: '사용한 포인트', value: `-30,000 P`, inline: true },
+          { name: '남은 포인트', value: `${(userPoints - price).toLocaleString()} P`, inline: true }
+        )
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    // 3. 강의권 구매
+    if (query === '강의권' || query === '강의') {
+      const price = 5000;
+
+      if (userPoints < price) {
+        return interaction.reply({ content: `⚠️ 포인트가 부족합니다! (필요: **5,000 P** / 보유: **${userPoints.toLocaleString()} P**)`, ephemeral: true });
+      }
+
+      pointsData[guildId][user.id] = userPoints - price;
+      saveData(POINTS_FILE, pointsData);
+
+      await notifyOwner(guild, user, '강의권', price, '유저가 강의권을 구매했습니다. 일정을 조율해 주세요!');
+
+      const embed = new EmbedBuilder()
+        .setColor('#57F287')
+        .setTitle('📚 강의권 구매 완료!')
+        .setDescription(`<@${user.id}> 님이 **강의권**을 구매하셨습니다! 서버 관리자(대표)에게 알림이 전송되었습니다.`)
+        .addFields(
+          { name: '사용한 포인트', value: `-5,000 P`, inline: true },
+          { name: '남은 포인트', value: `${(userPoints - price).toLocaleString()} P`, inline: true }
+        )
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    // 4. 일반 등록 역할 구매
+    const itemsObj = shopData[guildId].items || {};
+    const shopItem = Object.values(itemsObj).find(
+      item => item.name.toLowerCase() === query
+    );
 
     if (!shopItem) {
       return interaction.reply({ 
-        content: `⚠️ <@&${role.id}> 역할은 상점에서 판매 중인 물품이 아닙니다. \`/상점\` 목록을 확인해보세요!`, 
+        content: `⚠️ **'${options.getString('상품이름')}'**은(는) 상점에 존재하지 않는 상품입니다. \`/상점\` 목록을 확인해주세요!`, 
         ephemeral: true 
       });
     }
-
-    const userPoints = pointsData[guildId][user.id] || 0;
 
     if (userPoints < shopItem.price) {
       return interaction.reply({ 
@@ -626,19 +753,22 @@ client.on('interactionCreate', async interaction => {
 
     try {
       const member = await guild.members.fetch(user.id);
+      const role = guild.roles.cache.get(shopItem.roleId);
 
-      if (member.roles.cache.has(role.id)) {
-        return interaction.reply({ 
-          content: `⚠️ 이미 <@&${role.id}> 역할을 보유하고 계십니다!`, 
-          ephemeral: true 
-        });
+      if (!role) {
+        return interaction.reply({ content: '⚠️ 서버에서 해당 역할을 찾을 수 없습니다. 관리자에게 문의하세요.', ephemeral: true });
       }
 
-      // 포인트 차감 및 역할 부여
+      if (member.roles.cache.has(role.id)) {
+        return interaction.reply({ content: `⚠️ 이미 <@&${role.id}> 역할을 보유하고 계십니다!`, ephemeral: true });
+      }
+
       pointsData[guildId][user.id] = userPoints - shopItem.price;
       saveData(POINTS_FILE, pointsData);
 
       await member.roles.add(role);
+
+      await notifyOwner(guild, user, role.name, shopItem.price, `역할 자동 지급 완료`);
 
       const embed = new EmbedBuilder()
         .setColor('#57F287')
@@ -653,11 +783,8 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ embeds: [embed] });
 
     } catch (err) {
-      console.error('역할 구매 오류:', err);
-      return interaction.reply({ 
-        content: '⚠️ 역할 부여 중 오류가 발생했습니다. (봇의 역할 순위가 해당 역할보다 높은지 확인해주세요)', 
-        ephemeral: true 
-      });
+      console.error('상점 구매 오류:', err);
+      return interaction.reply({ content: '⚠️ 구매 처리 중 오류가 발생했습니다. (봇의 역할 순위가 해당 역할보다 높은지 확인해주세요)', ephemeral: true });
     }
   }
 });
