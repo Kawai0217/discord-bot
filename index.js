@@ -29,13 +29,14 @@ const client = new Client({
   ]
 });
 
-// 📌 [설정] 서버에서 빼앗고 되돌려줄 내전 역할 이름 (본인 서버 역할 이름에 맞게 수정!)
+// 📌 [설정] 내전 역할 이름
 const CIVIL_WAR_ROLE_NAME = '내전'; 
 
-// --- 데이터 파일 관리 (포인트, 경고, 내전정지) ---
+// --- 데이터 파일 관리 (포인트, 경고, 내전정지, 상점) ---
 const POINTS_FILE = path.join(__dirname, 'points.json');
 const WARNINGS_FILE = path.join(__dirname, 'warnings.json');
 const BANS_FILE = path.join(__dirname, 'bans.json');
+const SHOP_FILE = path.join(__dirname, 'shop.json');
 
 function loadData(filePath) {
   if (!fs.existsSync(filePath)) {
@@ -119,7 +120,6 @@ const commands = [
     .addUserOption(option => 
       option.setName('대상').setDescription('조회할 유저 (비워두면 본인 조회)').setRequired(false)),
 
-  // --- 내전 정지 관련 명령어 추가 ---
   new SlashCommandBuilder()
     .setName('내전정지')
     .setDescription('유저의 내전 역할을 7일 동안 박탈합니다.')
@@ -134,7 +134,36 @@ const commands = [
     .setDescription('유저의 내전 정지를 즉시 해제하고 역할을 다시 지급합니다.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(option => 
-      option.setName('대상').setDescription('정지 해제할 유저').setRequired(true))
+      option.setName('대상').setDescription('정지 해제할 유저').setRequired(true)),
+
+  // --- 상점 관련 명령어 ---
+  new SlashCommandBuilder()
+    .setName('상점')
+    .setDescription('포인트로 구매 가능한 역할 상점 목록을 확인합니다.'),
+
+  new SlashCommandBuilder()
+    .setName('상점등록')
+    .setDescription('상점에 판매할 역할을 등록합니다. (관리자 전용)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addRoleOption(option =>
+      option.setName('역할').setDescription('상점에 등록할 역할을 선택하세요.').setRequired(true))
+    .addIntegerOption(option =>
+      option.setName('가격').setDescription('역할의 가격(포인트)을 입력하세요.').setRequired(true))
+    .addStringOption(option =>
+      option.setName('설명').setDescription('역할 설명을 입력하세요.').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('상점삭제')
+    .setDescription('상점에서 역할을 삭제합니다. (관리자 전용)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addRoleOption(option =>
+      option.setName('역할').setDescription('상점에서 삭제할 역할을 선택하세요.').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('역할구매')
+    .setDescription('포인트를 사용하여 상점의 역할을 구매합니다.')
+    .addRoleOption(option =>
+      option.setName('역할').setDescription('구매할 상점 역할을 선택하세요.').setRequired(true))
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
@@ -169,7 +198,6 @@ async function checkExpiredBans() {
     for (const userId in bansData[guildId]) {
       const banInfo = bansData[guildId][userId];
 
-      // 정지 기간(7일)이 만료된 경우
       if (now >= banInfo.unbanTime) {
         try {
           const member = await guild.members.fetch(userId);
@@ -227,6 +255,9 @@ client.on('interactionCreate', async interaction => {
 
   const bansData = loadData(BANS_FILE);
   if (!bansData[guildId]) bansData[guildId] = {};
+
+  const shopData = loadData(SHOP_FILE);
+  if (!shopData[guildId]) shopData[guildId] = {};
 
   // [/내전인원]
   if (commandName === '내전인원') {
@@ -397,20 +428,18 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  // --- [/내전정지] ---
+  // [/내전정지]
   if (commandName === '내전정지') {
     const targetUser = options.getUser('대상');
     const reason = options.getString('사유') || '사유 미기재';
 
     try {
       const member = await guild.members.fetch(targetUser.id);
-      
-      // '내전' 역할 찾기
       const targetRole = guild.roles.cache.find(r => r.name === CIVIL_WAR_ROLE_NAME);
 
       if (!targetRole) {
         return interaction.reply({ 
-          content: `⚠️ 서버에서 **'${CIVIL_WAR_ROLE_NAME}'** 역할을 찾을 수 없습니다. 코드 상단의 CIVIL_WAR_ROLE_NAME 변수를 확인해 주세요.`, 
+          content: `⚠️ 서버에서 **'${CIVIL_WAR_ROLE_NAME}'** 역할을 찾을 수 없습니다.`, 
           ephemeral: true 
         });
       }
@@ -422,15 +451,12 @@ client.on('interactionCreate', async interaction => {
         });
       }
 
-      // 역할 제거
       await member.roles.remove(targetRole);
 
-      // 7일 뒤 해제 시간 계산 (7일 * 24시간 * 60분 * 60초 * 1000ms)
       const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
       const unbanTime = Date.now() + SEVEN_DAYS_MS;
       const unbanDateStr = new Date(unbanTime).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
 
-      // bans.json 데이터 저장
       bansData[guildId][targetUser.id] = {
         roleId: targetRole.id,
         unbanTime: unbanTime,
@@ -452,12 +478,12 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ embeds: [embed] });
 
     } catch (err) {
-      console.error('내전 정지 처리 중 에러:', err);
-      return interaction.reply({ content: '⚠️ 내전 정지 처리 중 오류가 발생했습니다. (봇 권한을 확인하세요)', ephemeral: true });
+      console.error('내전 정지 에러:', err);
+      return interaction.reply({ content: '⚠️ 내전 정지 처리 중 오류가 발생했습니다.', ephemeral: true });
     }
   }
 
-  // --- [/내전정지해제] ---
+  // [/내전정지해제]
   if (commandName === '내전정지해제') {
     const targetUser = options.getUser('대상');
 
@@ -490,6 +516,142 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ content: '⚠️ 내전 정지 해제 중 오류가 발생했습니다.', ephemeral: true });
     }
   }
+
+  // --- [/상점등록] ---
+  if (commandName === '상점등록') {
+    const role = options.getRole('역할');
+    const price = options.getInteger('가격');
+    const description = options.getString('설명') || '설명 없음';
+
+    if (price <= 0) {
+      return interaction.reply({ content: '⚠️ 가격은 1 포인트 이상이어야 합니다.', ephemeral: true });
+    }
+
+    shopData[guildId][role.id] = {
+      roleId: role.id,
+      roleName: role.name,
+      price: price,
+      description: description
+    };
+    saveData(SHOP_FILE, shopData);
+
+    const embed = new EmbedBuilder()
+      .setColor('#57F287')
+      .setTitle('🛒 상점 역할 등록 완료')
+      .setDescription(`<@&${role.id}> 역할을 상점에 등록했습니다.`)
+      .addFields(
+        { name: '역할 이름', value: role.name, inline: true },
+        { name: '판매 가격', value: `${price.toLocaleString()} P`, inline: true },
+        { name: '설명', value: description }
+      )
+      .setTimestamp();
+
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  // --- [/상점삭제] ---
+  if (commandName === '상점삭제') {
+    const role = options.getRole('역할');
+
+    if (!shopData[guildId][role.id]) {
+      return interaction.reply({ content: `⚠️ <@&${role.id}> 역할은 상점에 등록되어 있지 않습니다.`, ephemeral: true });
+    }
+
+    delete shopData[guildId][role.id];
+    saveData(SHOP_FILE, shopData);
+
+    const embed = new EmbedBuilder()
+      .setColor('#ED4245')
+      .setTitle('🗑️ 상점 역할 삭제 완료')
+      .setDescription(`<@&${role.id}> 역할을 상점 목록에서 삭제했습니다.`)
+      .setTimestamp();
+
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  // --- [/상점] ---
+  if (commandName === '상점') {
+    const items = Object.values(shopData[guildId]);
+
+    if (items.length === 0) {
+      return interaction.reply({ content: '🛒 현재 상점에 등록된 물품이 없습니다. 관리자에게 문의하세요!', ephemeral: true });
+    }
+
+    let itemListText = '';
+    items.forEach((item, idx) => {
+      itemListText += `**${idx + 1}. <@&${item.roleId}>** - \`${item.price.toLocaleString()} P\`\n┗ ${item.description}\n\n`;
+    });
+
+    const userPoints = pointsData[guildId][user.id] || 0;
+
+    const embed = new EmbedBuilder()
+      .setColor('#FEE75C')
+      .setTitle('🛒 포인트 역할 상점')
+      .setDescription(itemListText)
+      .addFields({ name: '💳 내 보유 포인트', value: `**${userPoints.toLocaleString()} P**` })
+      .setFooter({ text: '구매를 원하시면 /역할구매 명령어를 사용해주세요!' })
+      .setTimestamp();
+
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  // --- [/역할구매] ---
+  if (commandName === '역할구매') {
+    const role = options.getRole('역할');
+    const shopItem = shopData[guildId][role.id];
+
+    if (!shopItem) {
+      return interaction.reply({ 
+        content: `⚠️ <@&${role.id}> 역할은 상점에서 판매 중인 물품이 아닙니다. \`/상점\` 목록을 확인해보세요!`, 
+        ephemeral: true 
+      });
+    }
+
+    const userPoints = pointsData[guildId][user.id] || 0;
+
+    if (userPoints < shopItem.price) {
+      return interaction.reply({ 
+        content: `⚠️ 포인트가 부족합니다! (필요: **${shopItem.price.toLocaleString()} P** / 보유: **${userPoints.toLocaleString()} P**)`, 
+        ephemeral: true 
+      });
+    }
+
+    try {
+      const member = await guild.members.fetch(user.id);
+
+      if (member.roles.cache.has(role.id)) {
+        return interaction.reply({ 
+          content: `⚠️ 이미 <@&${role.id}> 역할을 보유하고 계십니다!`, 
+          ephemeral: true 
+        });
+      }
+
+      // 포인트 차감 및 역할 부여
+      pointsData[guildId][user.id] = userPoints - shopItem.price;
+      saveData(POINTS_FILE, pointsData);
+
+      await member.roles.add(role);
+
+      const embed = new EmbedBuilder()
+        .setColor('#57F287')
+        .setTitle('🎉 역할 구매 완료!')
+        .setDescription(`<@${user.id}> 님이 성공적으로 <@&${role.id}> 역할을 구매하셨습니다!`)
+        .addFields(
+          { name: '차감 포인트', value: `-${shopItem.price.toLocaleString()} P`, inline: true },
+          { name: '남은 포인트', value: `${(userPoints - shopItem.price).toLocaleString()} P`, inline: true }
+        )
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed] });
+
+    } catch (err) {
+      console.error('역할 구매 오류:', err);
+      return interaction.reply({ 
+        content: '⚠️ 역할 부여 중 오류가 발생했습니다. (봇의 역할 순위가 해당 역할보다 높은지 확인해주세요)', 
+        ephemeral: true 
+      });
+    }
+  }
 });
 
 // 명단 생성 및 티어 감지 + fow.lol 링크 자동 추출 함수
@@ -506,7 +668,6 @@ async function buildEmbed(guild) {
         const member = await guild.members.fetch(userId);
         const userRoleNames = member.roles.cache.map(r => r.name.toLowerCase());
 
-        // 1. 티어 감지
         let matchedTier = { code: 'U', priority: 99 };
         for (const t of tierInfo) {
           const isMatch = userRoleNames.some(roleName => 
@@ -519,7 +680,6 @@ async function buildEmbed(guild) {
           }
         }
 
-        // 2. 포지션 감지
         const userLines = [];
         userRoleNames.forEach(roleName => {
           lineKeywords.forEach(line => {
@@ -532,7 +692,6 @@ async function buildEmbed(guild) {
         const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
         const displayName = member.nickname || member.user.globalName || member.user.username;
 
-        // 3. fow.lol 전적 링크 자동 추출
         let fowLink = '';
         const riotIdMatch = displayName.match(/(?:^\d+\s+)?([^#]+#[^\s]+)/);
 
@@ -568,10 +727,8 @@ async function buildEmbed(guild) {
       }
     }
 
-    // 티어 순 정렬
     list.sort((a, b) => a.priority - b.priority);
 
-    // 출력 문구 조립
     list.forEach(p => {
       description += `**[${p.tierCode}]** ${p.displayName} / ${p.lineText}${p.fowLink}\n`;
     });
