@@ -11,7 +11,10 @@ const {
   Routes, 
   PermissionFlagsBits,
   ChannelType,
-  AttachmentBuilder
+  AttachmentBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
 } = require('discord.js');
 const { createCanvas, loadImage, registerFont } = require('canvas');
 
@@ -215,6 +218,9 @@ const commands = [
   new SlashCommandBuilder().setName('상점').setDescription('포인트로 구매 가능한 상점 목록을 확인합니다.'),
   new SlashCommandBuilder().setName('상점구매').setDescription('상점의 상품을 구매합니다.').addStringOption(option => option.setName('상품이름').setDescription('상품 이름').setRequired(true)),
   
+  // ✉️ 문의 패널 생성 명령어 (관리자 전용)
+  new SlashCommandBuilder().setName('문의패널').setDescription('문의하기 티켓 패널을 생성합니다. (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
   // 관리자 명령어
   new SlashCommandBuilder().setName('포인트로그설정').setDescription('포인트 로그 채널 설정 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addChannelOption(option => option.setName('채널').setDescription('텍스트 채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
   new SlashCommandBuilder().setName('경고로그설정').setDescription('경고 로그 채널 설정 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addChannelOption(option => option.setName('채널').setDescription('텍스트 채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
@@ -273,7 +279,6 @@ async function checkVoiceChannels() {
   });
 }
 
-// 7일 만료 체크 및 자동 역할 복구 함수
 async function checkExpiredBans() {
   const bansData = loadData(BANS_FILE);
   const now = Date.now();
@@ -294,9 +299,7 @@ async function checkExpiredBans() {
           if (member && role) {
             await member.roles.add(role);
           }
-        } catch (err) {
-          console.error(`역할 복구 에러 (${userId}):`, err);
-        }
+        } catch (err) {}
 
         delete bansData[guildId][userId];
         hasChanged = true;
@@ -333,6 +336,76 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async interaction => {
+  // 1. 버튼 클릭 상호작용 처리 (티켓 생성)
+  if (interaction.isButton()) {
+    const { customId, guild, user } = interaction;
+    if (!customId.startsWith('ticket_')) return;
+
+    const ticketTypeMap = {
+      'ticket_server': '서버-문의',
+      'ticket_report': '유저-신고및분쟁',
+      'ticket_verify': '명의-인증',
+      'ticket_event': '이벤트-문의',
+      'ticket_etc': '기타-문의'
+    };
+
+    const typeName = ticketTypeMap[customId] || '기타-문의';
+    const channelName = `${typeName}-${user.username}`;
+
+    await interaction.deferReply({ ephemeral: true });
+
+    try {
+      // 비공개 채널 생성
+      const ticketChannel = await guild.channels.create({
+        name: channelName,
+        type: ChannelType.GuildText,
+        permissionOverwrites: [
+          {
+            id: guild.id, // @everyone 권한 차단
+            deny: [PermissionFlagsBits.ViewChannel]
+          },
+          {
+            id: user.id, // 티어 생성한 본인 허용
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+          },
+          {
+            id: client.user.id, // 봇 허용
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+          }
+        ]
+      });
+
+      const welcomeEmbed = new EmbedBuilder()
+        .setColor('#5865F2')
+        .setTitle(`🎫 ${typeName.replace('-', ' ')} 채널입니다.`)
+        .setDescription(`<@${user.id}> 님, 문의 내용을 남겨주시면 관리자가 확인 후 답변해 드립니다.\n\n업무가 완료되면 채널을 닫아주세요.`);
+
+      const closeButton = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('ticket_close')
+          .setLabel('🔒 채널 닫기')
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      await ticketChannel.send({ content: `<@${user.id}>`, embeds: [welcomeEmbed], components: [closeButton] });
+      return await interaction.editReply({ content: `✅ 문의 채널이 생성되었습니다: <#${ticketChannel.id}>` });
+    } catch (err) {
+      console.error('티켓 채널 생성 오류:', err);
+      return await interaction.editReply({ content: '⚠️ 채널 생성 중 오류가 발생했습니다.' });
+    }
+  }
+
+  // 티켓 닫기 버튼 처리
+  if (interaction.isButton() && interaction.customId === 'ticket_close') {
+    await interaction.reply({ content: '🔒 5초 뒤에 채널이 삭제됩니다...', ephemeral: false });
+    setTimeout(async () => {
+      try {
+        await interaction.channel.delete();
+      } catch (e) {}
+    }, 5000);
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const { commandName, guildId, options, user, guild, channel } = interaction;
@@ -350,7 +423,6 @@ client.on('interactionCreate', async interaction => {
   if (!participantsData[guildId]) participantsData[guildId] = {};
   if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
 
-  // 안전한 응답 처리를 위해 선제 deferReply 사용 (타임아웃 방지)
   if (!interaction.deferred && !interaction.replied) {
     try {
       await interaction.deferReply({ ephemeral: false });
@@ -358,6 +430,36 @@ client.on('interactionCreate', async interaction => {
   }
 
   try {
+    // --- ✉️ [/문의패널] 생성 명령어 ---
+    if (commandName === '문의패널') {
+      const embed = new EmbedBuilder()
+        .setColor('#5865F2')
+        .setTitle('✉️ 문의하기')
+        .setDescription(
+          '아래 버튼 중 문의 유형을 골라 누르면, 관리자와 대화할 수 있는 비공개 채널이 생성됩니다.\n\n' +
+          '🏠 서버 문의\n' +
+          '🚨 유저 신고 및 분쟁 관련\n' +
+          '🪪 명의 인증\n' +
+          '🏆 이벤트 문의\n' +
+          '💬 기타 문의\n\n' +
+          '생성된 채널 이름에 문의 분류가 표시돼 관리자가 바로 확인할 수 있어요.'
+        );
+
+      const row1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('ticket_server').setLabel('서버 문의').setEmoji('🏠').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('ticket_report').setLabel('유저 신고 및 분쟁').setEmoji('🚨').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('ticket_verify').setLabel('명의 인증').setEmoji('🪪').setStyle(ButtonStyle.Success)
+      );
+
+      const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('ticket_event').setLabel('이벤트 문의').setEmoji('🏆').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('ticket_etc').setLabel('기타 문의').setEmoji('💬').setStyle(ButtonStyle.Secondary)
+      );
+
+      // deferReply 상태이므로 editReply로 패널 전송
+      return await interaction.editReply({ content: '✅ 문의 패널이 생성되었습니다!', embeds: [embed], components: [row1, row2] });
+    }
+
     // --- [/프로필] ---
     if (commandName === '프로필') {
       const targetUser = options.getUser('대상') || user;
@@ -472,7 +574,6 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ content: `<@${targetUser.id}> 님의 경고를 1회 차감했습니다. (현재 ${newWarns}회)` });
     }
 
-    // --- 🛑 [내전정지] 첫 번째 사진의 깔끔한 임베드 디자인 적용 ---
     if (commandName === '내전정지') {
       const targetUser = options.getUser('대상');
       const reason = options.getString('사유') || '사유 미기재';
@@ -487,7 +588,6 @@ client.on('interactionCreate', async interaction => {
         await member.roles.remove(targetRole);
       }
 
-      // 7일 뒤 자동 해제 시간 계산 및 저장
       const unbanTime = Date.now() + (7 * 24 * 60 * 60 * 1000);
       if (!bansData[guildId]) bansData[guildId] = {};
       bansData[guildId][targetUser.id] = {
@@ -498,7 +598,6 @@ client.on('interactionCreate', async interaction => {
 
       const unbanDateStr = new Date(unbanTime).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
 
-      // 첫 번째 사진과 동일한 임베드 박스 디자인 생성
       const embed = new EmbedBuilder()
         .setColor('#ED4245')
         .setTitle('🚫 내전 참가 정지 (7일)')
@@ -544,7 +643,7 @@ client.on('interactionCreate', async interaction => {
       const currentParticipants = participantsData[guildId][channelId] || [];
       let desc = currentParticipants.length === 0 ? '참가자가 없습니다.' : currentParticipants.map(id => `<@${id}>`).join('\n');
       const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎮 내전 참가자 명단').setDescription(desc);
-      return await interaction.editReply({ embeds: [embed] });
+      return await interaction.editReply({ embeds: { embeds: [embed] } });
     }
 
     if (commandName === '명단초기화') {
