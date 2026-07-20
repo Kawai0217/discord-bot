@@ -378,8 +378,19 @@ client.on('interactionCreate', async interaction => {
           reason: '유저 비공개 문의 티켓 생성'
         });
 
-        // 티켓을 연 유저를 스레드 멤버로 확실하게 추가
+        // 1. 티켓을 연 본인을 스레드 멤버로 추가
         await thread.members.add(user.id).catch(() => {});
+
+        // 2. 서버 내 '관리자 권한'을 가진 모든 유저들을 스레드 멤버로 자동 추가
+        try {
+          await guild.members.fetch(); // 멤버 캐시 갱신
+          const admins = guild.members.cache.filter(m => m.permissions.has(PermissionFlagsBits.Administrator) && !m.user.bot);
+          for (const [adminId] of admins) {
+            await thread.members.add(adminId).catch(() => {});
+          }
+        } catch (adminErr) {
+          console.error('관리자 자동 추가 중 오류:', adminErr);
+        }
 
         const welcomeEmbed = new EmbedBuilder()
           .setColor('#5865F2')
