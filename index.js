@@ -713,7 +713,7 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 🎮 [/내전인원] (티어 순 정렬 및 FOW 전적검색 링크 적용) ---
+    // --- 🎮 [/내전인원] (닉네임에서 년생/성별/티어 제외 후 전적검색 링크 생성) ---
     if (commandName === '내전인원') {
       const currentParticipants = participantsData[guildId][channelId] || [];
       if (currentParticipants.length === 0) {
@@ -750,8 +750,18 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // FOW.LOL 전적검색 링크 생성 (띄어쓰기 상관없이 닉네임#태그 인식)
-          const encodedName = encodeURIComponent(rawName);
+          // 🧹 닉네임 정제: 앞의 두 자리 년생(예: 96), 성별(여/남), 티어 단어 제거
+          let cleanName = rawName
+            .replace(/^\d{2}\s*/, '') // 앞의 두 자리 숫자(년생) 제거
+            .replace(/\b(여|남)\b/g, '') // 단독 '여', '남' 성별 제거
+            .replace(/\b(챌린저|챌|그랜드마스터|그마|마스터|마|다이아몬드|다이아|다|에메랄드|에메|에|플래티넘|플레티넘|플래|플레|플|골드|골|실버|실|브론즈|브|아이언|아|언랭)\b/gi, '') // 티어명 제거
+            .trim();
+
+          // 만약 정제 과정에서 이름이 다 날아갔다면 원본 이름 사용
+          if (!cleanName) cleanName = rawName;
+
+          // FOW.LOL 전적검색 링크 생성 (정제된 닉네임#태그 기준)
+          const encodedName = encodeURIComponent(cleanName);
           const fowLink = `https://fow.lol/find/${encodedName}`;
 
           userDetails.push({
