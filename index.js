@@ -220,10 +220,13 @@ const commands = [
   
   new SlashCommandBuilder().setName('문의패널').setDescription('문의하기 티켓 패널을 생성합니다. (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
+  // 📦 [/백업] 및 📥 [/복구] 관리자 명령어 추가
+  new SlashCommandBuilder().setName('백업').setDescription('봇의 모든 데이터 파일들을 백업하여 다운로드합니다. (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName('복구').setDescription('백업 JSON 파일을 첨부하여 봇 데이터를 복원합니다. (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addAttachmentOption(option => option.setName('파일').setDescription('백업했던 JSON 파일 첨부').setRequired(true)),
+
   new SlashCommandBuilder().setName('포인트로그설정').setDescription('포인트 로그 채널 설정 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addChannelOption(option => option.setName('채널').setDescription('텍스트 채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
   new SlashCommandBuilder().setName('경고로그설정').setDescription('경고 로그 채널 설정 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addChannelOption(option => option.setName('채널').setDescription('텍스트 채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
   
-  // 🎮 내전인원 명령어에 선택적 인원수 옵션 추가 (기본 10명, 최대 60명)
   new SlashCommandBuilder().setName('내전인원')
     .setDescription('내전 참가자 명단 확인 (관리자)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
@@ -440,7 +443,6 @@ client.on('interactionCreate', async interaction => {
         return interaction.update({ content: '참가자가 없습니다.', embeds: [], components: [] });
       }
 
-      // 기존 푸터에서 현재 페이지 및 설정된 itemsPerPage(인원수) 추출
       const footerText = interaction.message.embeds[0]?.footer?.text || '';
       const matchPage = footerText.match(/페이지\s*(\d+)\s*\/\s*(\d+)/);
       const matchLimit = footerText.match(/단위:\s*(\d+)명/);
@@ -552,11 +554,79 @@ client.on('interactionCreate', async interaction => {
 
   if (!interaction.deferred && !interaction.replied) {
     try {
-      await interaction.deferReply({ ephemeral: false });
+      await interaction.deferReply({ ephemeral: true });
     } catch (e) {}
   }
 
   try {
+    // --- 📦 [/백업] 명령어 ---
+    if (commandName === '백업') {
+      const backupObj = {
+        timestamp: new Date().toISOString(),
+        guildId: guildId,
+        points: loadData(POINTS_FILE),
+        warnings: loadData(WARNINGS_FILE),
+        bans: loadData(BANS_FILE),
+        shop: loadData(SHOP_FILE),
+        attendance: loadData(ATTENDANCE_FILE),
+        logConfig: loadData(LOG_CONFIG_FILE),
+        warningLogConfig: loadData(WARNING_LOG_CONFIG_FILE),
+        participants: loadData(PARTICIPANTS_FILE)
+      };
+
+      const backupFilePath = path.join(__dirname, `backup-${guildId}-${Date.now()}.json`);
+      fs.writeFileSync(backupFilePath, JSON.stringify(backupObj, null, 2), 'utf8');
+
+      const attachment = new AttachmentBuilder(backupFilePath, { name: 'bot-backup-data.json' });
+
+      await interaction.editReply({
+        content: '📦 봇의 모든 데이터 백업 파일이 생성되었습니다. 이 파일을 안전한 곳에 보관해 주세요!',
+        files: [attachment]
+      });
+
+      setTimeout(() => {
+        try {
+          if (fs.existsSync(backupFilePath)) {
+            fs.unlinkSync(backupFilePath);
+          }
+        } catch (e) {}
+      }, 10000);
+
+      return;
+    }
+
+    // --- 📥 [/복구] 명령어 구현 (백업 JSON 파일을 첨부받아 데이터 복원) ---
+    if (commandName === '복구') {
+      const attachedFile = options.getAttachment('파일');
+      if (!attachedFile || !attachedFile.name.endsWith('.json')) {
+        return await interaction.editReply({ content: '⚠️ 올바른 `.json` 형식의 백업 파일을 첨부해 주세요!' });
+      }
+
+      try {
+        const response = await fetch(attachedFile.url);
+        const backupData = await response.json();
+
+        if (!backupData.points || !backupData.warnings) {
+          return await interaction.editReply({ content: '⚠️ 올바른 봇 백업 파일 형식이 아닙니다.' });
+        }
+
+        // 각 데이터 파일에 덮어쓰기 복원
+        if (backupData.points) saveData(POINTS_FILE, backupData.points);
+        if (backupData.warnings) saveData(WARNINGS_FILE, backupData.warnings);
+        if (backupData.bans) saveData(BANS_FILE, backupData.bans);
+        if (backupData.shop) saveData(SHOP_FILE, backupData.shop);
+        if (backupData.attendance) saveData(ATTENDANCE_FILE, backupData.attendance);
+        if (backupData.logConfig) saveData(LOG_CONFIG_FILE, backupData.logConfig);
+        if (backupData.warningLogConfig) saveData(WARNING_LOG_CONFIG_FILE, backupData.warningLogConfig);
+        if (backupData.participants) saveData(PARTICIPANTS_FILE, backupData.participants);
+
+        return await interaction.editReply({ content: '✅ 백업 파일로부터 모든 데이터가 성공적으로 복원되었습니다!' });
+      } catch (err) {
+        console.error('데이터 복구 오류:', err);
+        return await interaction.editReply({ content: '⚠️ 파일을 읽어오는 중 오류가 발생했습니다. 올바른 백업 파일인지 확인해주세요.' });
+      }
+    }
+
     // --- ✉️ [/문의패널] ---
     if (commandName === '문의패널') {
       const embed = new EmbedBuilder()
@@ -583,7 +653,7 @@ client.on('interactionCreate', async interaction => {
         new ButtonBuilder().setCustomId('ticket_etc').setLabel('기타 문의').setEmoji('💬').setStyle(ButtonStyle.Secondary)
       );
 
-      return await interaction.editReply({ content: '✅ 문의 패널이 생성되었습니다!', embeds: [embed], components: [row1, row2] });
+      return await interaction.editReply({ ephemeral: false, content: '✅ 문의 패널이 생성되었습니다!', embeds: [embed], components: [row1, row2] });
     }
 
     // --- 📊 [/포인트로그설정] ---
@@ -685,7 +755,6 @@ client.on('interactionCreate', async interaction => {
         '- `5,000 P`\n' +
         'ㄴ강의를 받을 수 있는 수강권을 획득합니다.';
 
-      // 관리자가 등록한 커스텀 상점 상품이 있다면 추가 표시
       if (shopData[guildId]?.items) {
         for (const roleId in shopData[guildId].items) {
           const item = shopData[guildId].items[roleId];
@@ -713,7 +782,6 @@ client.on('interactionCreate', async interaction => {
       let cost = 0;
       let targetRoleId = null;
 
-      // 기본 상품 매칭
       if (rawInput.includes('경고') || rawInput.includes('차감권')) {
         selectedItem = '경고 차감권';
         if (!shopData[guildId].userTicketCounts) shopData[guildId].userTicketCounts = {};
@@ -726,7 +794,6 @@ client.on('interactionCreate', async interaction => {
         selectedItem = '강의권';
         cost = 5000;
       } else if (shopData[guildId]?.items) {
-        // 관리자가 등록한 역할 상품 매칭
         for (const rId in shopData[guildId].items) {
           const item = shopData[guildId].items[rId];
           const roleObj = guild.roles.cache.get(rId);
@@ -811,7 +878,7 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 🛠️ [/상점등록] 관리자 명령어 구현 ---
+    // --- 🛠️ [/상점등록] ---
     if (commandName === '상점등록') {
       const targetRole = options.getRole('역할');
       const price = options.getInteger('가격');
@@ -835,7 +902,7 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 🛠️ [/상점삭제] 관리자 명령어 구현 ---
+    // --- 🛠️ [/상점삭제] ---
     if (commandName === '상점삭제') {
       const targetRole = options.getRole('역할');
 
@@ -1003,7 +1070,7 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 🎮 [/내전인원] (선택적 인원수 단위 페이지네이션 지원) ---
+    // --- 🎮 [/내전인원] ---
     if (commandName === '내전인원') {
       const currentParticipants = participantsData[guildId][channelId] || [];
       if (currentParticipants.length === 0) {
@@ -1011,7 +1078,6 @@ client.on('interactionCreate', async interaction => {
         return await interaction.editReply({ embeds: [embed] });
       }
 
-      // 사용자가 입력한 인원수 가져오기 (기본값 10명)
       const itemsPerPage = options.getInteger('인원수') || 10;
 
       const userDetails = [];
