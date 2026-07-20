@@ -29,9 +29,13 @@ const client = new Client({
   ]
 });
 
-// --- 데이터 파일 관리 (포인트 & 경고) ---
+// 📌 [설정] 서버에서 빼앗고 되돌려줄 내전 역할 이름 (본인 서버 역할 이름에 맞게 수정!)
+const CIVIL_WAR_ROLE_NAME = '내전'; 
+
+// --- 데이터 파일 관리 (포인트, 경고, 내전정지) ---
 const POINTS_FILE = path.join(__dirname, 'points.json');
 const WARNINGS_FILE = path.join(__dirname, 'warnings.json');
+const BANS_FILE = path.join(__dirname, 'bans.json');
 
 function loadData(filePath) {
   if (!fs.existsSync(filePath)) {
@@ -93,7 +97,6 @@ const commands = [
     .setName('포인트순위')
     .setDescription('서버 내 포인트 Top 10 순위를 확인합니다.'),
 
-  // --- 경고 관련 명령어 추가 ---
   new SlashCommandBuilder()
     .setName('경고')
     .setDescription('유저에게 경고를 부여합니다. (3회 누적 시 자동 차단)')
@@ -114,7 +117,24 @@ const commands = [
     .setName('경고확인')
     .setDescription('유저의 현재 경고 횟수를 확인합니다.')
     .addUserOption(option => 
-      option.setName('대상').setDescription('조회할 유저 (비워두면 본인 조회)').setRequired(false))
+      option.setName('대상').setDescription('조회할 유저 (비워두면 본인 조회)').setRequired(false)),
+
+  // --- 내전 정지 관련 명령어 추가 ---
+  new SlashCommandBuilder()
+    .setName('내전정지')
+    .setDescription('유저의 내전 역할을 7일 동안 박탈합니다.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addUserOption(option => 
+      option.setName('대상').setDescription('내전 정지할 유저').setRequired(true))
+    .addStringOption(option => 
+      option.setName('사유').setDescription('정지 사유').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('내전정지해제')
+    .setDescription('유저의 내전 정지를 즉시 해제하고 역할을 다시 지급합니다.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addUserOption(option => 
+      option.setName('대상').setDescription('정지 해제할 유저').setRequired(true))
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
@@ -131,7 +151,48 @@ client.once('ready', async () => {
   } catch (error) {
     console.error('명령어 등록 오류:', error);
   }
+
+  // 1분마다 정지 만료 유저 체크하여 역할 자동 복구
+  setInterval(checkExpiredBans, 60 * 1000);
 });
+
+// 내전 정지 만료 유저 자동 역할 복구 함수
+async function checkExpiredBans() {
+  const bansData = loadData(BANS_FILE);
+  const now = Date.now();
+  let hasChanged = false;
+
+  for (const guildId in bansData) {
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) continue;
+
+    for (const userId in bansData[guildId]) {
+      const banInfo = bansData[guildId][userId];
+
+      // 정지 기간(7일)이 만료된 경우
+      if (now >= banInfo.unbanTime) {
+        try {
+          const member = await guild.members.fetch(userId);
+          const role = guild.roles.cache.get(banInfo.roleId);
+
+          if (member && role) {
+            await member.roles.add(role);
+            console.log(`[내전정지 해제] ${member.user.tag} 님에게 ${role.name} 역할을 다시 부여했습니다.`);
+          }
+        } catch (err) {
+          console.error(`역할 복구 에러 (${userId}):`, err);
+        }
+
+        delete bansData[guildId][userId];
+        hasChanged = true;
+      }
+    }
+  }
+
+  if (hasChanged) {
+    saveData(BANS_FILE, bansData);
+  }
+}
 
 // 채팅 감지 이벤트 ('ㅅ', '손', 't')
 client.on('messageCreate', async (message) => {
@@ -163,6 +224,9 @@ client.on('interactionCreate', async interaction => {
 
   const warningsData = loadData(WARNINGS_FILE);
   if (!warningsData[guildId]) warningsData[guildId] = {};
+
+  const bansData = loadData(BANS_FILE);
+  if (!bansData[guildId]) bansData[guildId] = {};
 
   // [/내전인원]
   if (commandName === '내전인원') {
@@ -246,7 +310,7 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  // --- [/경고] ---
+  // [/경고]
   if (commandName === '경고') {
     const targetUser = options.getUser('대상');
     const reason = options.getString('사유') || '사유 미기재';
@@ -255,7 +319,6 @@ client.on('interactionCreate', async interaction => {
     warningsData[guildId][targetUser.id] = currentWarns;
     saveData(WARNINGS_FILE, warningsData);
 
-    // 경고 3회 이상이면 자동 차단(Ban)
     if (currentWarns >= 3) {
       try {
         const member = await guild.members.fetch(targetUser.id);
@@ -272,15 +335,13 @@ client.on('interactionCreate', async interaction => {
 
         return interaction.reply({ embeds: [embed] });
       } catch (err) {
-        console.error('차단 처리 오류:', err);
         return interaction.reply({ 
-          content: `⚠️ <@${targetUser.id}> 님의 경고가 3회가 되었지만 봇의 권한 부족 등으로 차단에 실패했습니다. (봇 역할 순위 확인 필요)`, 
+          content: `⚠️ <@${targetUser.id}> 님의 경고가 3회가 되었지만 차단에 실패했습니다. (봇 역할 순위 확인 필요)`, 
           ephemeral: true 
         });
       }
     }
 
-    // 경고 1~2회인 경우
     const embed = new EmbedBuilder()
       .setColor('#FEE75C')
       .setTitle('⚠️ 경고 부여')
@@ -295,7 +356,7 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  // --- [/경고차감] ---
+  // [/경고차감]
   if (commandName === '경고차감') {
     const targetUser = options.getUser('대상');
     const currentWarns = warningsData[guildId][targetUser.id] || 0;
@@ -321,7 +382,7 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  // --- [/경고확인] ---
+  // [/경고확인]
   if (commandName === '경고확인') {
     const targetUser = options.getUser('대상') || user;
     const userWarns = warningsData[guildId][targetUser.id] || 0;
@@ -334,6 +395,100 @@ client.on('interactionCreate', async interaction => {
       .setTimestamp();
 
     return interaction.reply({ embeds: [embed] });
+  }
+
+  // --- [/내전정지] ---
+  if (commandName === '내전정지') {
+    const targetUser = options.getUser('대상');
+    const reason = options.getString('사유') || '사유 미기재';
+
+    try {
+      const member = await guild.members.fetch(targetUser.id);
+      
+      // '내전' 역할 찾기
+      const targetRole = guild.roles.cache.find(r => r.name === CIVIL_WAR_ROLE_NAME);
+
+      if (!targetRole) {
+        return interaction.reply({ 
+          content: `⚠️ 서버에서 **'${CIVIL_WAR_ROLE_NAME}'** 역할을 찾을 수 없습니다. 코드 상단의 CIVIL_WAR_ROLE_NAME 변수를 확인해 주세요.`, 
+          ephemeral: true 
+        });
+      }
+
+      if (!member.roles.cache.has(targetRole.id)) {
+        return interaction.reply({ 
+          content: `<@${targetUser.id}> 님은 이미 **'${CIVIL_WAR_ROLE_NAME}'** 역할을 가지고 있지 않습니다.`, 
+          ephemeral: true 
+        });
+      }
+
+      // 역할 제거
+      await member.roles.remove(targetRole);
+
+      // 7일 뒤 해제 시간 계산 (7일 * 24시간 * 60분 * 60초 * 1000ms)
+      const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+      const unbanTime = Date.now() + SEVEN_DAYS_MS;
+      const unbanDateStr = new Date(unbanTime).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+
+      // bans.json 데이터 저장
+      bansData[guildId][targetUser.id] = {
+        roleId: targetRole.id,
+        unbanTime: unbanTime,
+        reason: reason
+      };
+      saveData(BANS_FILE, bansData);
+
+      const embed = new EmbedBuilder()
+        .setColor('#ED4245')
+        .setTitle('🚫 내전 참가 정지 (7일)')
+        .setDescription(`<@${targetUser.id}> 님의 **'${CIVIL_WAR_ROLE_NAME}'** 역할을 회수했습니다.`)
+        .addFields(
+          { name: '사유', value: reason },
+          { name: '자동 해제 일시', value: `**${unbanDateStr}**` }
+        )
+        .setFooter({ text: '일주일 뒤 자동으로 내전 역할이 복구됩니다.' })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed] });
+
+    } catch (err) {
+      console.error('내전 정지 처리 중 에러:', err);
+      return interaction.reply({ content: '⚠️ 내전 정지 처리 중 오류가 발생했습니다. (봇 권한을 확인하세요)', ephemeral: true });
+    }
+  }
+
+  // --- [/내전정지해제] ---
+  if (commandName === '내전정지해제') {
+    const targetUser = options.getUser('대상');
+
+    if (!bansData[guildId] || !bansData[guildId][targetUser.id]) {
+      return interaction.reply({ content: `<@${targetUser.id}> 님은 내전 정지 상태가 아닙니다!`, ephemeral: true });
+    }
+
+    try {
+      const member = await guild.members.fetch(targetUser.id);
+      const banInfo = bansData[guildId][targetUser.id];
+      const targetRole = guild.roles.cache.get(banInfo.roleId);
+
+      if (targetRole && member) {
+        await member.roles.add(targetRole);
+      }
+
+      delete bansData[guildId][targetUser.id];
+      saveData(BANS_FILE, bansData);
+
+      const embed = new EmbedBuilder()
+        .setColor('#57F287')
+        .setTitle('🟢 내전 정지 조기 해제')
+        .setDescription(`<@${targetUser.id}> 님의 내전 정지를 즉시 해제하고 **'${targetRole ? targetRole.name : '내전'}'** 역할을 다시 부여했습니다.`)
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed] });
+
+    } catch (err) {
+      console.error('내전 정지 해제 에러:', err);
+      return interaction.reply({ content: '⚠️ 내전 정지 해제 중 오류가 발생했습니다.', ephemeral: true });
+    }
   }
 });
 
