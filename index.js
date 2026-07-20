@@ -123,7 +123,7 @@ async function getUserProfileInfo(guild, user) {
   }
 }
 
-// 🎨 글씨 크기를 키우고 가독성을 극대화한 프로필 카드 생성 함수
+// 🎨 핑크 배경 + 커스텀 폰트 + 가독성 높은 굵은 글씨 프로필 카드 생성 함수
 async function generateProfileCard(user, displayName, matchedTier, lineText, points, warns) {
   const canvas = createCanvas(800, 450);
   const ctx = canvas.getContext('2d');
@@ -137,14 +137,12 @@ async function generateProfileCard(user, displayName, matchedTier, lineText, poi
     ctx.fillRect(0, 0, 800, 450);
   }
 
-  // 글씨가 핑크 배경에 묻히지 않도록 글자에 어두운 테두리(그림자) 효과 주는 헬퍼 함수
+  // 글자 테두리(그림자) 효과 헬퍼 함수
   const drawTextWithShadow = (text, x, y, font, fillColor) => {
     ctx.font = font;
-    // 테두리 (가독성 강화)
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = 4;
     ctx.strokeText(text, x, y);
-    // 본체 글씨
     ctx.fillStyle = fillColor;
     ctx.fillText(text, x, y);
   };
@@ -173,14 +171,10 @@ async function generateProfileCard(user, displayName, matchedTier, lineText, poi
     ctx.fill();
   }
 
-  // 3. 닉네임 (크기 대폭 키움: 34px)
+  // 3. 카드 내부 텍스트 배치
   drawTextWithShadow(displayName, 185, 115, '34px CustomFont', '#ffffff');
-
-  // 4. 티어 & 주요 라인 (크기 키움: 22px)
   drawTextWithShadow(`티어 : ${matchedTier.name} [${matchedTier.code}]`, 185, 160, '22px CustomFont', '#00ffff');
   drawTextWithShadow(`주요 라인 : ${lineText}`, 185, 200, '22px CustomFont', '#ffeb3b');
-
-  // 5. 포인트 & 경고 (크기 키움: 22px)
   drawTextWithShadow(`보유 포인트 : ${points.toLocaleString()} P`, 185, 285, '22px CustomFont', '#76ff03');
   
   const warnColor = warns > 0 ? '#ff1744' : '#ffffff';
@@ -189,13 +183,30 @@ async function generateProfileCard(user, displayName, matchedTier, lineText, poi
   return canvas.toBuffer();
 }
 
-// 슬래시 명령어 등록
+// 슬래시 명령어 등록 (설정 누락 방지 수정 완료)
 const commands = [
-  new SlashCommandBuilder().setName('프로필').setDescription('레트로 프로필 카드를 확인합니다.').addUserOption(option => option.setName('대상').setDescription('조회할 유저').setRequired(false)),
-  new SlashCommandBuilder().setName('출석').setDescription('출석체크를 하고 포인트를 받습니다!'),
-  new SlashCommandBuilder().setName('포인트').setDescription('포인트를 확인합니다.').addUserOption(option => option.setName('대상').setRequired(false)),
-  new SlashCommandBuilder().setName('포인트순위').setDescription('포인트 순위 Top 10을 확인합니다.'),
-  new SlashCommandBuilder().setName('경고확인').setDescription('경고 횟수를 확인합니다.').addUserOption(option => option.setName('대상').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('프로필')
+    .setDescription('자신 또는 다른 유저의 레트로 프로필 카드를 확인합니다.')
+    .addUserOption(option => option.setName('대상').setDescription('조회할 유저를 선택하세요').setRequired(false)),
+  
+  new SlashCommandBuilder()
+    .setName('출석')
+    .setDescription('출석체크를 하고 포인트를 받습니다!'),
+  
+  new SlashCommandBuilder()
+    .setName('포인트')
+    .setDescription('포인트를 확인합니다.')
+    .addUserOption(option => option.setName('대상').setDescription('조회할 유저를 선택하세요').setRequired(false)),
+  
+  new SlashCommandBuilder()
+    .setName('포인트순위')
+    .setDescription('포인트 순위 Top 10을 확인합니다.'),
+  
+  new SlashCommandBuilder()
+    .setName('경고확인')
+    .setDescription('경고 횟수를 확인합니다.')
+    .addUserOption(option => option.setName('대상').setDescription('조회할 유저를 선택하세요').setRequired(false)),
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
