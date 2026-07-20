@@ -41,7 +41,6 @@ const client = new Client({
   ]
 });
 
-// 📌 [설정] 내전 역할 이름
 const CIVIL_WAR_ROLE_NAME = '내전'; 
 
 // --- 데이터 파일 관리 ---
@@ -69,54 +68,33 @@ function saveData(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
-// 음성방 체류 시간 누적 관리용 메모리 객체
 const voiceTimeTracker = {};
 
-// 포인트 로그 전송 함수
+// 로그 전송 함수들
 async function sendPointLog(guild, title, description, color = '#5865F2') {
   try {
     const logConfig = loadData(LOG_CONFIG_FILE);
     const channelId = logConfig[guild.id];
     if (!channelId) return;
-
     const channel = await guild.channels.fetch(channelId).catch(() => null);
     if (!channel) return;
-
-    const embed = new EmbedBuilder()
-      .setColor(color)
-      .setTitle(`📊 ${title}`)
-      .setDescription(description)
-      .setTimestamp();
-
+    const embed = new EmbedBuilder().setColor(color).setTitle(`📊 ${title}`).setDescription(description).setTimestamp();
     await channel.send({ embeds: [embed] });
-  } catch (err) {
-    console.error('포인트 로그 전송 실패:', err);
-  }
+  } catch (err) {}
 }
 
-// 경고 로그 전송 함수
 async function sendWarningLog(guild, title, description, color = '#ED4245') {
   try {
     const logConfig = loadData(WARNING_LOG_CONFIG_FILE);
     const channelId = logConfig[guild.id];
     if (!channelId) return;
-
     const channel = await guild.channels.fetch(channelId).catch(() => null);
     if (!channel) return;
-
-    const embed = new EmbedBuilder()
-      .setColor(color)
-      .setTitle(`🚨 ${title}`)
-      .setDescription(description)
-      .setTimestamp();
-
+    const embed = new EmbedBuilder().setColor(color).setTitle(`🚨 ${title}`).setDescription(description).setTimestamp();
     await channel.send({ embeds: [embed] });
-  } catch (err) {
-    console.error('경고 로그 전송 실패:', err);
-  }
+  } catch (err) {}
 }
 
-// 디스코드 역할 이름 매칭 패턴 정의
 const tierInfo = [
   { keywords: ['챌린저', '챌'], code: 'C', name: 'Challenger', color: '#FFD700' },
   { keywords: ['그랜드마스터', '그마'], code: 'GM', name: 'Grandmaster', color: '#FF8C00' },
@@ -133,7 +111,6 @@ const tierInfo = [
 
 const lineKeywords = ['탑', '정글', '미드', '원딜', '서폿'];
 
-// 유저 정보 분석 헬퍼 함수
 async function getUserProfileInfo(guild, user) {
   try {
     const member = await guild.members.fetch(user.id);
@@ -172,12 +149,11 @@ async function getUserProfileInfo(guild, user) {
   }
 }
 
-// 🎨 글씨 크기를 키우고 가독성을 극대화한 프로필 카드 생성 함수
+// 🎨 프로필 카드 생성 함수
 async function generateProfileCard(user, displayName, matchedTier, lineText, points, warns) {
   const canvas = createCanvas(800, 450);
   const ctx = canvas.getContext('2d');
 
-  // 1. 배경 이미지 로드
   try {
     const bgImage = await loadImage(path.join(__dirname, 'background.png'));
     ctx.drawImage(bgImage, 0, 0, 800, 450);
@@ -186,7 +162,6 @@ async function generateProfileCard(user, displayName, matchedTier, lineText, poi
     ctx.fillRect(0, 0, 800, 450);
   }
 
-  // 글자 테두리(그림자) 효과 헬퍼 함수
   const drawTextWithShadow = (text, x, y, font, fillColor) => {
     ctx.font = font;
     ctx.strokeStyle = '#000000';
@@ -196,7 +171,6 @@ async function generateProfileCard(user, displayName, matchedTier, lineText, poi
     ctx.fillText(text, x, y);
   };
 
-  // 2. 프로필 아바타 원형 그리기
   try {
     const avatarURL = user.displayAvatarURL({ extension: 'png', size: 128 });
     const avatar = await loadImage(avatarURL);
@@ -220,7 +194,6 @@ async function generateProfileCard(user, displayName, matchedTier, lineText, poi
     ctx.fill();
   }
 
-  // 3. 카드 내부 텍스트 배치
   drawTextWithShadow(displayName, 185, 115, '34px CustomFont', '#ffffff');
   drawTextWithShadow(`티어 : ${matchedTier.name} [${matchedTier.code}]`, 185, 160, '22px CustomFont', '#00ffff');
   drawTextWithShadow(`주요 라인 : ${lineText}`, 185, 200, '22px CustomFont', '#ffeb3b');
@@ -273,7 +246,6 @@ client.once('ready', async () => {
   setInterval(checkVoiceChannels, 60 * 1000);
 });
 
-// 음성 채널 보상
 async function checkVoiceChannels() {
   const pointsData = loadData(POINTS_FILE);
   client.guilds.cache.forEach(async guild => {
@@ -324,7 +296,6 @@ async function checkExpiredBans() {
   if (hasChanged) saveData(BANS_FILE, bansData);
 }
 
-// 채팅 내전 신청 ('ㅅ', '손', 't')
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
   const text = message.content.trim();
@@ -366,138 +337,180 @@ client.on('interactionCreate', async interaction => {
   if (!participantsData[guildId]) participantsData[guildId] = {};
   if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
 
-  // --- [/프로필] ---
-  if (commandName === '프로필') {
-    await interaction.deferReply();
-    const targetUser = options.getUser('대상') || user;
-    const { displayName, matchedTier, lineText } = await getUserProfileInfo(guild, targetUser);
-    const userPoints = pointsData[guildId][targetUser.id] || 0;
-    const userWarns = warningsData[guildId][targetUser.id] || 0;
-
+  // 안전한 응답 처리를 위해 선제 deferReply 사용 (타임아웃 방지)
+  const isImageCommand = (commandName === '프로필');
+  if (!interaction.deferred && !interaction.replied) {
     try {
+      await interaction.deferReply({ ephemeral: false });
+    } catch (e) {}
+  }
+
+  try {
+    // --- [/프로필] ---
+    if (commandName === '프로필') {
+      const targetUser = options.getUser('대상') || user;
+      const { displayName, matchedTier, lineText } = await getUserProfileInfo(guild, targetUser);
+      const userPoints = pointsData[guildId][targetUser.id] || 0;
+      const userWarns = warningsData[guildId][targetUser.id] || 0;
+
       const cardBuffer = await generateProfileCard(targetUser, displayName, matchedTier, lineText, userPoints, userWarns);
       const attachment = new AttachmentBuilder(cardBuffer, { name: 'retro-profile.png' });
       return await interaction.editReply({ files: [attachment] });
-    } catch (err) {
-      console.error('프로필 이미지 생성 오류:', err);
-      return await interaction.editReply({ content: '⚠️ 프로필 명함 카드를 생성하는 도중 오류가 발생했습니다.' });
-    }
-  }
-
-  // --- [/출석] ---
-  if (commandName === '출석') {
-    const todayStr = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
-    const attendanceData = loadData(ATTENDANCE_FILE);
-    if (!attendanceData[guildId]) attendanceData[guildId] = {};
-
-    if (attendanceData[guildId][user.id] === todayStr) {
-      return interaction.reply({ content: '⚠️ 오늘은 이미 출석체크를 완료하셨습니다!', ephemeral: true });
-    }
-    attendanceData[guildId][user.id] = todayStr;
-    saveData(ATTENDANCE_FILE, attendanceData);
-
-    const currentPoints = pointsData[guildId][user.id] || 0;
-    const newPoints = currentPoints + 50;
-    pointsData[guildId][user.id] = newPoints;
-    saveData(POINTS_FILE, pointsData);
-
-    return interaction.reply({ content: `📅 출석체크 완료! **50 P**가 지급되었습니다. (보유: ${newPoints} P)` });
-  }
-
-  // --- [/포인트] ---
-  if (commandName === '포인트') {
-    const targetUser = options.getUser('대상') || user;
-    const userPoints = pointsData[guildId][targetUser.id] || 0;
-    return interaction.reply({ content: `<@${targetUser.id}> 님의 현재 포인트는 **${userPoints.toLocaleString()} P** 입니다.` });
-  }
-
-  // --- [/포인트순위] ---
-  if (commandName === '포인트순위') {
-    const serverPoints = pointsData[guildId] || {};
-    const sortedUsers = Object.keys(serverPoints)
-      .map(userId => ({ userId, points: serverPoints[userId] }))
-      .sort((a, b) => b.points - a.points)
-      .slice(0, 10);
-
-    if (sortedUsers.length === 0) {
-      return interaction.reply({ content: '등록된 포인트 데이터가 없습니다!', ephemeral: true });
     }
 
-    let rankingText = '';
-    sortedUsers.forEach((item, index) => {
-      const rankNum = index + 1;
-      rankingText += `**${rankNum}위** <@${item.userId}> - **${item.points.toLocaleString()} P**\n`;
-    });
+    // --- [/출석] ---
+    if (commandName === '출석') {
+      const todayStr = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
+      const attendanceData = loadData(ATTENDANCE_FILE);
+      if (!attendanceData[guildId]) attendanceData[guildId] = {};
 
-    const embed = new EmbedBuilder().setColor('#FEE75C').setTitle('🏆 포인트 순위 Top 10').setDescription(rankingText);
-    return interaction.reply({ embeds: [embed] });
-  }
+      if (attendanceData[guildId][user.id] === todayStr) {
+        return await interaction.editReply({ content: '⚠️ 오늘은 이미 출석체크를 완료하셨습니다!' });
+      }
+      attendanceData[guildId][user.id] = todayStr;
+      saveData(ATTENDANCE_FILE, attendanceData);
 
-  // --- [/경고확인] ---
-  if (commandName === '경고확인') {
-    const targetUser = options.getUser('대상') || user;
-    const userWarns = warningsData[guildId][targetUser.id] || 0;
-    return interaction.reply({ content: `<@${targetUser.id}> 님의 현재 경고 횟수는 **${userWarns} / 3 회** 입니다.` });
-  }
+      const currentPoints = pointsData[guildId][user.id] || 0;
+      const newPoints = currentPoints + 50;
+      pointsData[guildId][user.id] = newPoints;
+      saveData(POINTS_FILE, pointsData);
 
-  // --- [/상점] ---
-  if (commandName === '상점') {
-    const itemsObj = shopData[guildId].items || {};
-    const items = Object.values(itemsObj);
-    let itemListText = `**1. 🎟️ 경고 차감권** - \`3,000 P\`\n**2. 🏷️ 커스텀역할** - \`30,000 P\`\n**3. 📚 강의권** - \`5,000 P\`\n\n`;
-    let idx = 4;
-    items.forEach(item => {
-      itemListText += `**${idx}. <@&${item.roleId}>** - \`${item.price.toLocaleString()} P\`\n`;
-      idx++;
-    });
+      return await interaction.editReply({ content: `📅 출석체크 완료! **50 P**가 지급되었습니다. (보유: ${newPoints} P)` });
+    }
 
-    const userPoints = pointsData[guildId][user.id] || 0;
-    const embed = new EmbedBuilder().setColor('#FEE75C').setTitle('🛒 포인트 상점').setDescription(itemListText).addFields({ name: '내 포인트', value: `${userPoints.toLocaleString()} P` });
-    return interaction.reply({ embeds: [embed] });
-  }
+    // --- [/포인트] ---
+    if (commandName === '포인트') {
+      const targetUser = options.getUser('대상') || user;
+      const userPoints = pointsData[guildId][targetUser.id] || 0;
+      return await interaction.editReply({ content: `<@${targetUser.id}> 님의 현재 포인트는 **${userPoints.toLocaleString()} P** 입니다.` });
+    }
 
-  // --- 관리자 명령어 처리 ---
-  if (commandName === '포인트지급') {
-    const targetUser = options.getUser('대상');
-    const amount = options.getInteger('포인트');
-    const currentPoints = pointsData[guildId][targetUser.id] || 0;
-    const newPoints = currentPoints + amount;
-    pointsData[guildId][targetUser.id] = newPoints;
-    saveData(POINTS_FILE, pointsData);
-    return interaction.reply({ content: `<@${targetUser.id}> 님에게 **${amount.toLocaleString()} P**를 지급/차감했습니다. (현재: ${newPoints} P)` });
-  }
+    // --- [/포인트순위] ---
+    if (commandName === '포인트순위') {
+      const serverPoints = pointsData[guildId] || {};
+      const sortedUsers = Object.keys(serverPoints)
+        .map(userId => ({ userId, points: serverPoints[userId] }))
+        .sort((a, b) => b.points - a.points)
+        .slice(0, 10);
 
-  if (commandName === '경고') {
-    const targetUser = options.getUser('대상');
-    const reason = options.getString('사유') || '사유 미기재';
-    const currentWarns = (warningsData[guildId][targetUser.id] || 0) + 1;
-    warningsData[guildId][targetUser.id] = currentWarns;
-    saveData(WARNINGS_FILE, warningsData);
-    return interaction.reply({ content: `<@${targetUser.id}> 님에게 경고 1회를 부여했습니다. (현재 ${currentWarns}회 / 사유: ${reason})` });
-  }
+      if (sortedUsers.length === 0) {
+        return await interaction.editReply({ content: '등록된 포인트 데이터가 없습니다!' });
+      }
 
-  if (commandName === '경고차감') {
-    const targetUser = options.getUser('대상');
-    const currentWarns = warningsData[guildId][targetUser.id] || 0;
-    if (currentWarns <= 0) return interaction.reply({ content: '차감할 경고가 없습니다!', ephemeral: true });
-    const newWarns = currentWarns - 1;
-    warningsData[guildId][targetUser.id] = newWarns;
-    saveData(WARNINGS_FILE, warningsData);
-    return interaction.reply({ content: `<@${targetUser.id}> 님의 경고를 1회 차감했습니다. (현재 ${newWarns}회)` });
-  }
+      let rankingText = '';
+      sortedUsers.forEach((item, index) => {
+        const rankNum = index + 1;
+        rankingText += `**${rankNum}위** <@${item.userId}> - **${item.points.toLocaleString()} P**\n`;
+      });
 
-  if (commandName === '내전인원') {
-    await interaction.deferReply();
-    const currentParticipants = participantsData[guildId][channelId] || [];
-    let desc = currentParticipants.length === 0 ? '참가자가 없습니다.' : currentParticipants.map(id => `<@${id}>`).join('\n');
-    const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎮 내전 참가자 명단').setDescription(desc);
-    return interaction.editReply({ embeds: [embed] });
-  }
+      const embed = new EmbedBuilder().setColor('#FEE75C').setTitle('🏆 포인트 순위 Top 10').setDescription(rankingText);
+      return await interaction.editReply({ embeds: [embed] });
+    }
 
-  if (commandName === '명단초기화') {
-    participantsData[guildId][channelId] = [];
-    saveData(PARTICIPANTS_FILE, participantsData);
-    return interaction.reply({ content: '🔄 내전 참가자 명단이 초기화되었습니다!' });
+    // --- [/경고확인] ---
+    if (commandName === '경고확인') {
+      const targetUser = options.getUser('대상') || user;
+      const userWarns = warningsData[guildId][targetUser.id] || 0;
+      return await interaction.editReply({ content: `<@${targetUser.id}> 님의 현재 경고 횟수는 **${userWarns} / 3 회** 입니다.` });
+    }
+
+    // --- [/상점] ---
+    if (commandName === '상점') {
+      const itemsObj = shopData[guildId].items || {};
+      const items = Object.values(itemsObj);
+      let itemListText = `**1. 🎟️ 경고 차감권** - \`3,000 P\`\n**2. 🏷️ 커스텀역할** - \`30,000 P\`\n**3. 📚 강의권** - \`5,000 P\`\n\n`;
+      let idx = 4;
+      items.forEach(item => {
+        itemListText += `**${idx}. <@&${item.roleId}>** - \`${item.price.toLocaleString()} P\`\n`;
+        idx++;
+      });
+
+      const userPoints = pointsData[guildId][user.id] || 0;
+      const embed = new EmbedBuilder().setColor('#FEE75C').setTitle('🛒 포인트 상점').setDescription(itemListText).addFields({ name: '내 포인트', value: `${userPoints.toLocaleString()} P` });
+      return await interaction.editReply({ embeds: [embed] });
+    }
+
+    // --- 관리자 명령어 처리 ---
+    if (commandName === '포인트지급') {
+      const targetUser = options.getUser('대상');
+      const amount = options.getInteger('포인트');
+      const currentPoints = pointsData[guildId][targetUser.id] || 0;
+      const newPoints = currentPoints + amount;
+      pointsData[guildId][targetUser.id] = newPoints;
+      saveData(POINTS_FILE, pointsData);
+      return await interaction.editReply({ content: `<@${targetUser.id}> 님에게 **${amount.toLocaleString()} P**를 지급/차감했습니다. (현재: ${newPoints} P)` });
+    }
+
+    if (commandName === '경고') {
+      const targetUser = options.getUser('대상');
+      const reason = options.getString('사유') || '사유 미기재';
+      const currentWarns = (warningsData[guildId][targetUser.id] || 0) + 1;
+      warningsData[guildId][targetUser.id] = currentWarns;
+      saveData(WARNINGS_FILE, warningsData);
+      return await interaction.editReply({ content: `<@${targetUser.id}> 님에게 경고 1회를 부여했습니다. (현재 ${currentWarns}회 / 사유: ${reason})` });
+    }
+
+    if (commandName === '경고차감') {
+      const targetUser = options.getUser('대상');
+      const currentWarns = warningsData[guildId][targetUser.id] || 0;
+      if (currentWarns <= 0) return await interaction.editReply({ content: '차감할 경고가 없습니다!' });
+      const newWarns = currentWarns - 1;
+      warningsData[guildId][targetUser.id] = newWarns;
+      saveData(WARNINGS_FILE, warningsData);
+      return await interaction.editReply({ content: `<@${targetUser.id}> 님의 경고를 1회 차감했습니다. (현재 ${newWarns}회)` });
+    }
+
+    if (commandName === '내전정지') {
+      const targetUser = options.getUser('대상');
+      const reason = options.getString('사유') || '사유 미기재';
+      const member = await guild.members.fetch(targetUser.id).catch(() => null);
+      const targetRole = guild.roles.cache.find(r => r.name === CIVIL_WAR_ROLE_NAME);
+
+      if (!targetRole || !member) {
+        return await interaction.editReply({ content: `⚠️ 서버에서 **'${CIVIL_WAR_ROLE_NAME}'** 역할을 찾을 수 없거나 유저를 찾지 못했습니다.` });
+      }
+
+      if (member.roles.cache.has(targetRole.id)) {
+        await member.roles.remove(targetRole);
+      }
+
+      return await interaction.editReply({ content: `🚫 <@${targetUser.id}> 님의 내전 역할을 회수하여 정지 처리했습니다. (사유: ${reason})` });
+    }
+
+    if (commandName === '내전정지해제') {
+      const targetUser = options.getUser('대상');
+      const member = await guild.members.fetch(targetUser.id).catch(() => null);
+      const targetRole = guild.roles.cache.find(r => r.name === CIVIL_WAR_ROLE_NAME);
+
+      if (!targetRole || !member) {
+        return await interaction.editReply({ content: `⚠️ 역할을 찾을 수 없습니다.` });
+      }
+
+      if (!member.roles.cache.has(targetRole.id)) {
+        await member.roles.add(targetRole);
+      }
+
+      return await interaction.editReply({ content: `🟢 <@${targetUser.id}> 님의 내전 정지를 해제했습니다.` });
+    }
+
+    if (commandName === '내전인원') {
+      const currentParticipants = participantsData[guildId][channelId] || [];
+      let desc = currentParticipants.length === 0 ? '참가자가 없습니다.' : currentParticipants.map(id => `<@${id}>`).join('\n');
+      const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎮 내전 참가자 명단').setDescription(desc);
+      return await interaction.editReply({ embeds: [embed] });
+    }
+
+    if (commandName === '명단초기화') {
+      participantsData[guildId][channelId] = [];
+      saveData(PARTICIPANTS_FILE, participantsData);
+      return await interaction.editReply({ content: '🔄 내전 참가자 명단이 초기화되었습니다!' });
+    }
+
+  } catch (err) {
+    console.error('명령어 실행 오류:', err);
+    try {
+      await interaction.editReply({ content: '⚠️ 명령어를 처리하는 도중 오류가 발생했습니다.' });
+    } catch (e) {}
   }
 });
 
