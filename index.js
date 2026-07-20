@@ -222,7 +222,19 @@ const commands = [
 
   new SlashCommandBuilder().setName('포인트로그설정').setDescription('포인트 로그 채널 설정 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addChannelOption(option => option.setName('채널').setDescription('텍스트 채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
   new SlashCommandBuilder().setName('경고로그설정').setDescription('경고 로그 채널 설정 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addChannelOption(option => option.setName('채널').setDescription('텍스트 채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
-  new SlashCommandBuilder().setName('내전인원').setDescription('내전 참가자 명단 확인 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  
+  // 🎮 내전인원 명령어에 선택적 인원수 옵션 추가 (기본 10명, 최대 60명)
+  new SlashCommandBuilder().setName('내전인원')
+    .setDescription('내전 참가자 명단 확인 (관리자)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addIntegerOption(option => 
+      option.setName('인원수')
+        .setDescription('한 페이지에 볼 인원수 (기본 10명, 최대 60명)')
+        .setMinValue(1)
+        .setMaxValue(60)
+        .setRequired(false)
+    ),
+
   new SlashCommandBuilder().setName('명단초기화').setDescription('명단 초기화 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName('포인트지급').setDescription('포인트 지급/차감 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)).addIntegerOption(option => option.setName('포인트').setDescription('포인트 (음수 입력 시 차감)').setRequired(true)),
   
@@ -231,6 +243,7 @@ const commands = [
   
   new SlashCommandBuilder().setName('내전정지').setDescription('내전 정지 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)).addStringOption(option => option.setName('사유').setDescription('사유')),
   new SlashCommandBuilder().setName('내전정지해제').setDescription('정지 해제 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)),
+  
   new SlashCommandBuilder().setName('상점등록').setDescription('상점 역할 등록 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addRoleOption(option => option.setName('역할').setDescription('역할').setRequired(true)).addIntegerOption(option => option.setName('가격').setDescription('가격').setRequired(true)).addStringOption(option => option.setName('설명').setDescription('설명')),
   new SlashCommandBuilder().setName('상점삭제').setDescription('상점 역할 삭제 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addRoleOption(option => option.setName('역할').setDescription('역할').setRequired(true))
 ].map(command => command.toJSON());
@@ -427,19 +440,20 @@ client.on('interactionCreate', async interaction => {
         return interaction.update({ content: '참가자가 없습니다.', embeds: [], components: [] });
       }
 
-      // 기존 메시지의 임베드 푸터에서 현재 페이지 번호 추출 (예: "페이지 1 / 3")
+      // 기존 푸터에서 현재 페이지 및 설정된 itemsPerPage(인원수) 추출
       const footerText = interaction.message.embeds[0]?.footer?.text || '';
-      const match = footerText.match(/페이지\s*(\d+)\s*\/\s*(\d+)/);
-      let currentPage = match ? parseInt(match[1]) : 1;
-      const totalPages = match ? parseInt(match[2]) : 1;
+      const matchPage = footerText.match(/페이지\s*(\d+)\s*\/\s*(\d+)/);
+      const matchLimit = footerText.match(/단위:\s*(\d+)명/);
+
+      let currentPage = matchPage ? parseInt(matchPage[1]) : 1;
+      const itemsPerPage = matchLimit ? parseInt(matchLimit[1]) : 10;
 
       if (customId === 'page_prev') {
-        currentPage = currentPage > 1 ? currentPage - 1 : totalPages;
+        currentPage = currentPage > 1 ? currentPage - 1 : 1;
       } else if (customId === 'page_next') {
-        currentPage = currentPage < totalPages ? currentPage + 1 : 1;
+        currentPage = currentPage + 1;
       }
 
-      // 유저 세부 정보 재구성
       const userDetails = [];
       for (const userId of currentParticipants) {
         try {
@@ -496,10 +510,9 @@ client.on('interactionCreate', async interaction => {
 
       userDetails.sort((a, b) => a.rank - b.rank);
 
-      const itemsPerPage = 10;
       const newTotalPages = Math.ceil(userDetails.length / itemsPerPage);
-      // 페이지 범위 초과 방지
       if (currentPage > newTotalPages) currentPage = newTotalPages;
+      if (currentPage < 1) currentPage = 1;
 
       const startIndex = (currentPage - 1) * itemsPerPage;
       const slicedItems = userDetails.slice(startIndex, startIndex + itemsPerPage);
@@ -509,14 +522,14 @@ client.on('interactionCreate', async interaction => {
         .setColor('#5865F2')
         .setTitle('🎮 내전 참가자 명단 (티어순)')
         .setDescription(listDesc)
-        .setFooter({ text: `총 참가 인원: ${userDetails.length}명 | 페이지 ${currentPage} / ${newTotalPages}` });
+        .setFooter({ text: `총 참가 인원: ${userDetails.length}명 | 단위: ${itemsPerPage}명 | 페이지 ${currentPage} / ${newTotalPages}` });
 
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('page_prev').setLabel('◀ 이전').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('page_next').setLabel('다음 ▶').setStyle(ButtonStyle.Primary)
+        new ButtonBuilder().setCustomId('page_prev').setLabel('◀ 이전').setStyle(ButtonStyle.Primary).setDisabled(currentPage <= 1),
+        new ButtonBuilder().setCustomId('page_next').setLabel('다음 ▶').setStyle(ButtonStyle.Primary).setDisabled(currentPage >= newTotalPages)
       );
 
-      return await interaction.update({ embeds: [embed], components: newTotalPages > 1 ? [row] : [] });
+      return await interaction.update({ embeds: [embed], components: [row] });
     }
   }
 
@@ -662,27 +675,35 @@ client.on('interactionCreate', async interaction => {
     // --- 🛒 [/상점] ---
     if (commandName === '상점') {
       const userPoints = pointsData[guildId][user.id] || 0;
+      let shopDesc = '**1. 🎟️ 경고 차감권**\n' +
+        '- `3,000 P` (내 구매 횟수: 0회)\n' +
+        'ㄴ구매 즉시 누적된 경고 1회가 자동으로 차감됩니다. (재구매 시마다 2,000 P씩 증가)\n\n' +
+        '**2. 🏷️ 커스텀역할**\n' +
+        '- `30,000 P`\n' +
+        'ㄴ본인이 원하는 커스텀 역할을 신청할 수 있습니다.\n\n' +
+        '**3. 📚 강의권**\n' +
+        '- `5,000 P`\n' +
+        'ㄴ강의를 받을 수 있는 수강권을 획득합니다.';
+
+      // 관리자가 등록한 커스텀 상점 상품이 있다면 추가 표시
+      if (shopData[guildId]?.items) {
+        for (const roleId in shopData[guildId].items) {
+          const item = shopData[guildId].items[roleId];
+          shopDesc += `\n\n**🏷️ <@&${roleId}>**\n- \`${item.price.toLocaleString()} P\`\nㄴ${item.description || '설명 없음'}`;
+        }
+      }
+
       const embed = new EmbedBuilder()
         .setColor('#FEE75C')
         .setTitle('🛒 포인트 상점')
-        .setDescription(
-          '**1. 🎟️ 경고 차감권**\n' +
-          '- `3,000 P` (내 구매 횟수: 0회)\n' +
-          'ㄴ구매 즉시 누적된 경고 1회가 자동으로 차감됩니다. (재구매 시마다 2,000 P씩 증가)\n\n' +
-          '**2. 🏷️ 커스텀역할**\n' +
-          '- `30,000 P`\n' +
-          'ㄴ본인이 원하는 커스텀 역할을 신청할 수 있습니다.\n\n' +
-          '**3. 📚 강의권**\n' +
-          '- `5,000 P`\n' +
-          'ㄴ강의를 받을 수 있는 수강권을 획득합니다.'
-        )
+        .setDescription(shopDesc)
         .addFields({ name: '💳 내 보유 포인트', value: `**${userPoints.toLocaleString()} P**` })
-        .setFooter({ text: '구매를 원하시면 /상점구매 명령어를 사용해주세요! (예: /상점구매 상품이름: 커스텀역할)' });
+        .setFooter({ text: '구매를 원하시면 /상점구매 명령어를 사용해주세요!' });
 
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 🛒 [/상점구매] (포인트 자동 차감 및 서버 대표 DM 알림) ---
+    // --- 🛒 [/상점구매] ---
     if (commandName === '상점구매') {
       const rawInput = options.getString('상품이름').trim().toLowerCase();
       const userId = user.id;
@@ -690,7 +711,9 @@ client.on('interactionCreate', async interaction => {
 
       let selectedItem = null;
       let cost = 0;
+      let targetRoleId = null;
 
+      // 기본 상품 매칭
       if (rawInput.includes('경고') || rawInput.includes('차감권')) {
         selectedItem = '경고 차감권';
         if (!shopData[guildId].userTicketCounts) shopData[guildId].userTicketCounts = {};
@@ -702,7 +725,21 @@ client.on('interactionCreate', async interaction => {
       } else if (rawInput.includes('강의') || rawInput.includes('강의권')) {
         selectedItem = '강의권';
         cost = 5000;
-      } else {
+      } else if (shopData[guildId]?.items) {
+        // 관리자가 등록한 역할 상품 매칭
+        for (const rId in shopData[guildId].items) {
+          const item = shopData[guildId].items[rId];
+          const roleObj = guild.roles.cache.get(rId);
+          if (roleObj && (roleObj.name.toLowerCase().includes(rawInput) || rawInput.includes(roleObj.name.toLowerCase()))) {
+            selectedItem = roleObj.name;
+            cost = item.price;
+            targetRoleId = rId;
+            break;
+          }
+        }
+      }
+
+      if (!selectedItem) {
         return await interaction.editReply({ content: '⚠️ 존재하지 않는 상품입니다. `/상점` 명령어로 상품 목록을 확인해주세요.' });
       }
 
@@ -729,9 +766,16 @@ client.on('interactionCreate', async interaction => {
         } else {
           successDescription += `\n\n🛡️ 차감할 경고가 없어 포인트만 차감되었습니다.`;
         }
+      } else if (targetRoleId) {
+        try {
+          const memberObj = await guild.members.fetch(userId);
+          await memberObj.roles.add(targetRoleId);
+          successDescription += `\n\n🏷️ 구매하신 역할이 즉시 지급되었습니다!`;
+        } catch (e) {
+          successDescription += `\n\n⚠️ 역할 지급 중 오류가 발생했습니다. 관리자에게 문의해주세요.`;
+        }
       }
 
-      // 포인트 로그 채널 전송
       await sendPointLog(
         guild,
         '상점 상품 구매',
@@ -739,7 +783,6 @@ client.on('interactionCreate', async interaction => {
         '#57F287'
       );
 
-      // 서버 대표(소유자)에게 개인 DM 알림 전송
       try {
         const owner = await guild.fetchOwner();
         if (owner) {
@@ -756,9 +799,7 @@ client.on('interactionCreate', async interaction => {
             .setTimestamp();
           await owner.send({ embeds: [dmEmbed] });
         }
-      } catch (dmErr) {
-        console.error('서버 대표 DM 전송 실패:', dmErr);
-      }
+      } catch (dmErr) {}
 
       const embed = new EmbedBuilder()
         .setColor('#57F287')
@@ -770,7 +811,45 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 💰 [/포인트지급] (지급/차감 명확화 및 관리자 로그 전송) ---
+    // --- 🛠️ [/상점등록] 관리자 명령어 구현 ---
+    if (commandName === '상점등록') {
+      const targetRole = options.getRole('역할');
+      const price = options.getInteger('가격');
+      const description = options.getString('설명') || '설명 없음';
+
+      if (!shopData[guildId].items) shopData[guildId].items = {};
+      shopData[guildId].items[targetRole.id] = { price, description };
+      saveData(SHOP_FILE, shopData);
+
+      const embed = new EmbedBuilder()
+        .setColor('#57F287')
+        .setTitle('🛒 상점 상품 등록 완료')
+        .setDescription(`성공적으로 역할 상품이 등록되었습니다.`)
+        .addFields(
+          { name: '등록 역할', value: `<@&${targetRole.id}>`, inline: true },
+          { name: '가격', value: `${price.toLocaleString()} P`, inline: true },
+          { name: '설명', value: description }
+        )
+        .setTimestamp();
+
+      return await interaction.editReply({ embeds: [embed] });
+    }
+
+    // --- 🛠️ [/상점삭제] 관리자 명령어 구현 ---
+    if (commandName === '상점삭제') {
+      const targetRole = options.getRole('역할');
+
+      if (!shopData[guildId]?.items?.[targetRole.id]) {
+        return await interaction.editReply({ content: '⚠️ 해당 역할은 등록된 상품이 아닙니다.' });
+      }
+
+      delete shopData[guildId].items[targetRole.id];
+      saveData(SHOP_FILE, shopData);
+
+      return await interaction.editReply({ content: `🗑️ <@&${targetRole.id}> 역할 상품이 상점에서 삭제되었습니다.` });
+    }
+
+    // --- 💰 [/포인트지급] ---
     if (commandName === '포인트지급') {
       const targetUser = options.getUser('대상');
       const amount = options.getInteger('포인트');
@@ -789,7 +868,6 @@ client.on('interactionCreate', async interaction => {
         `**현재 보유 포인트:** ${newPoints.toLocaleString()} P\n` +
         `**처리 관리자:** <@${user.id}>`;
 
-      // 포인트 로그 채널 전송
       await sendPointLog(guild, actionType, logDescription, color);
 
       const embed = new EmbedBuilder()
@@ -925,13 +1003,16 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 🎮 [/내전인원] (10명 단위 페이지네이션 적용) ---
+    // --- 🎮 [/내전인원] (선택적 인원수 단위 페이지네이션 지원) ---
     if (commandName === '내전인원') {
       const currentParticipants = participantsData[guildId][channelId] || [];
       if (currentParticipants.length === 0) {
         const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎮 내전 참가자 명단 (티어순)').setDescription('참가자가 없습니다.');
         return await interaction.editReply({ embeds: [embed] });
       }
+
+      // 사용자가 입력한 인원수 가져오기 (기본값 10명)
+      const itemsPerPage = options.getInteger('인원수') || 10;
 
       const userDetails = [];
       for (const userId of currentParticipants) {
@@ -989,7 +1070,6 @@ client.on('interactionCreate', async interaction => {
 
       userDetails.sort((a, b) => a.rank - b.rank);
 
-      const itemsPerPage = 10;
       const totalPages = Math.ceil(userDetails.length / itemsPerPage);
       const currentPage = 1;
 
@@ -1000,11 +1080,11 @@ client.on('interactionCreate', async interaction => {
         .setColor('#5865F2')
         .setTitle('🎮 내전 참가자 명단 (티어순)')
         .setDescription(listDesc)
-        .setFooter({ text: `총 참가 인원: ${userDetails.length}명 | 페이지 ${currentPage} / ${totalPages}` });
+        .setFooter({ text: `총 참가 인원: ${userDetails.length}명 | 단위: ${itemsPerPage}명 | 페이지 ${currentPage} / ${totalPages}` });
 
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('page_prev').setLabel('◀ 이전').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('page_next').setLabel('다음 ▶').setStyle(ButtonStyle.Primary)
+        new ButtonBuilder().setCustomId('page_prev').setLabel('◀ 이전').setStyle(ButtonStyle.Primary).setDisabled(currentPage <= 1),
+        new ButtonBuilder().setCustomId('page_next').setLabel('다음 ▶').setStyle(ButtonStyle.Primary).setDisabled(currentPage >= totalPages)
       );
 
       return await interaction.editReply({ 
