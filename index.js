@@ -218,17 +218,17 @@ const commands = [
   new SlashCommandBuilder().setName('상점').setDescription('포인트로 구매 가능한 상점 목록을 확인합니다.'),
   new SlashCommandBuilder().setName('상점구매').setDescription('상점의 상품을 구매합니다.').addStringOption(option => option.setName('상품이름').setDescription('상품 이름').setRequired(true)),
   
-  // ✉️ 문의 패널 생성 명령어 (관리자 전용)
   new SlashCommandBuilder().setName('문의패널').setDescription('문의하기 티켓 패널을 생성합니다. (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-  // 관리자 명령어
   new SlashCommandBuilder().setName('포인트로그설정').setDescription('포인트 로그 채널 설정 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addChannelOption(option => option.setName('채널').setDescription('텍스트 채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
   new SlashCommandBuilder().setName('경고로그설정').setDescription('경고 로그 채널 설정 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addChannelOption(option => option.setName('채널').setDescription('텍스트 채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
   new SlashCommandBuilder().setName('내전인원').setDescription('내전 참가자 명단 확인 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName('명단초기화').setDescription('명단 초기화 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName('포인트지급').setDescription('포인트 지급/차감 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)).addIntegerOption(option => option.setName('포인트').setDescription('포인트').setRequired(true)),
+  
   new SlashCommandBuilder().setName('경고').setDescription('경고 부여 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)).addStringOption(option => option.setName('사유').setDescription('사유')),
   new SlashCommandBuilder().setName('경고차감').setDescription('경고 차감 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)),
+  
   new SlashCommandBuilder().setName('내전정지').setDescription('내전 정지 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)).addStringOption(option => option.setName('사유').setDescription('사유')),
   new SlashCommandBuilder().setName('내전정지해제').setDescription('정지 해제 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)),
   new SlashCommandBuilder().setName('상점등록').setDescription('상점 역할 등록 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addRoleOption(option => option.setName('역할').setDescription('역할').setRequired(true)).addIntegerOption(option => option.setName('가격').setDescription('가격').setRequired(true)).addStringOption(option => option.setName('설명').setDescription('설명')),
@@ -433,7 +433,6 @@ client.on('interactionCreate', async interaction => {
   if (!participantsData[guildId]) participantsData[guildId] = {};
   if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
 
-  // 안전한 응답 처리를 위해 선제 deferReply 사용 (경고로그설정 무한 로딩 해결)
   if (!interaction.deferred && !interaction.replied) {
     try {
       await interaction.deferReply({ ephemeral: false });
@@ -479,7 +478,7 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ content: `✅ 포인트 로그 채널이 <#${targetChannel.id}> (으)로 설정되었습니다!` });
     }
 
-    // --- 🚨 [/경고로그설정] (무한 로딩 완벽 해결) ---
+    // --- 🚨 [/경고로그설정] ---
     if (commandName === '경고로그설정') {
       const targetChannel = options.getChannel('채널');
       const warningLogConfig = loadData(WARNING_LOG_CONFIG_FILE);
@@ -556,7 +555,7 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ content: `<@${targetUser.id}> 님의 현재 경고 횟수는 **${userWarns} / 3 회** 입니다.` });
     }
 
-    // --- 🛒 [/상점] (두 번째 사진의 깔끔한 디자인 적용) ---
+    // --- 🛒 [/상점] ---
     if (commandName === '상점') {
       const userPoints = pointsData[guildId][user.id] || 0;
       const embed = new EmbedBuilder()
@@ -590,7 +589,7 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ content: `<@${targetUser.id}> 님에게 **${amount.toLocaleString()} P**를 지급/차감했습니다. (현재: ${newPoints} P)` });
     }
 
-    // --- ⚠️ [/경고] (첫 번째 사진과 동일한 노란색 임베드 디자인 적용) ---
+    // --- ⚠️ [/경고] (부여 관리자 표시 추가) ---
     if (commandName === '경고') {
       const targetUser = options.getUser('대상');
       const reason = options.getString('사유') || '사유 미기재';
@@ -598,36 +597,59 @@ client.on('interactionCreate', async interaction => {
       warningsData[guildId][targetUser.id] = currentWarns;
       saveData(WARNINGS_FILE, warningsData);
 
-      // 경고 로그 채널로 전송
+      // 경고 로그 채널로 전송 (부여 관리자 포함)
       await sendWarningLog(
         guild, 
         '경고 부여', 
-        `<@${targetUser.id}> 님에게 경고 1회를 부여했습니다.`, 
+        `<@${targetUser.id}> 님에게 경고 1회를 부여했습니다.\n\n**현재 경고 횟수:** ${currentWarns} / 3 회\n**사유:** ${reason}\n**경고 부여 관리자:** <@${user.id}>`, 
         '#FEE75C'
       );
 
-      // 명령어 입력한 곳에 보여줄 임베드 (첫 번째 사진 디자인)
+      // 명령어 입력한 곳에 보여줄 임베드
       const embed = new EmbedBuilder()
         .setColor('#FEE75C')
         .setTitle('⚠️ 경고 부여')
         .setDescription(`<@${targetUser.id}> 님에게 경고 1회를 부여했습니다.`)
         .addFields(
           { name: '현재 경고 횟수', value: `${currentWarns} / 3 회`, inline: true },
-          { name: '사유', value: reason, inline: true }
+          { name: '사유', value: reason, inline: true },
+          { name: '경고 부여 관리자', value: `<@${user.id}>` }
         )
         .setTimestamp();
 
       return await interaction.editReply({ embeds: [embed] });
     }
 
+    // --- ⚠️ [/경고차감] (차감 관리자 표시 추가) ---
     if (commandName === '경고차감') {
       const targetUser = options.getUser('대상');
       const currentWarns = warningsData[guildId][targetUser.id] || 0;
       if (currentWarns <= 0) return await interaction.editReply({ content: '차감할 경고가 없습니다!' });
+
       const newWarns = currentWarns - 1;
       warningsData[guildId][targetUser.id] = newWarns;
       saveData(WARNINGS_FILE, warningsData);
-      return await interaction.editReply({ content: `<@${targetUser.id}> 님의 경고를 1회 차감했습니다. (현재 ${newWarns}회)` });
+
+      // 경고 로그 채널로 전송 (차감 관리자 포함)
+      await sendWarningLog(
+        guild, 
+        '경고 차감', 
+        `<@${targetUser.id}> 님의 경고를 1회 차감했습니다.\n\n**현재 경고 횟수:** ${newWarns} / 3 회\n**경고 차감 관리자:** <@${user.id}>`, 
+        '#57F287'
+      );
+
+      // 명령어 입력한 곳에 보여줄 임베드
+      const embed = new EmbedBuilder()
+        .setColor('#57F287')
+        .setTitle('🛡️ 경고 차감')
+        .setDescription(`<@${targetUser.id}> 님의 경고를 1회 차감했습니다.`)
+        .addFields(
+          { name: '현재 경고 횟수', value: `${newWarns} / 3 회`, inline: true },
+          { name: '경고 차감 관리자', value: `<@${user.id}>`, inline: true }
+        )
+        .setTimestamp();
+
+      return await interaction.editReply({ embeds: [embed] });
     }
 
     if (commandName === '내전정지') {
