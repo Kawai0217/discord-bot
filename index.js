@@ -62,7 +62,7 @@ function saveData(filePath, data) {
 // 음성방 체류 시간 누적 관리용 메모리 객체
 const voiceTimeTracker = {};
 
-// 포인트 로그 전송 함수 (출석/상점 제외, 관리자 포인트 지급/차감 및 음성 보상용)
+// 포인트 로그 전송 함수
 async function sendPointLog(guild, title, description, color = '#5865F2') {
   try {
     const logConfig = loadData(LOG_CONFIG_FILE);
@@ -126,7 +126,6 @@ const lineKeywords = ['탑', '정글', '미드', '원딜', '서폿'];
 
 // 슬래시 명령어 정의
 const commands = [
-  // --- 일반 유저 가능 명령어 ---
   new SlashCommandBuilder()
     .setName('출석')
     .setDescription('하루에 한 번 출석체크를 하고 50 포인트를 받습니다!'),
@@ -298,7 +297,6 @@ async function checkVoiceChannels() {
             pointsData[guildId][userId] = newPoints;
             saveData(POINTS_FILE, pointsData);
 
-            // 음성방 1시간 보상 로그 전송
             await sendPointLog(
               guild, 
               '음성 채널 보상 지급', 
@@ -517,10 +515,15 @@ client.on('interactionCreate', async interaction => {
     pointsData[guildId][targetUser.id] = newPoints;
     saveData(POINTS_FILE, pointsData);
 
-    // 관리자 포인트 지급/차감 로그 전송
+    // 관리자 포인트 지급/차감 로그 전송 (실행한 관리자 정보 포함)
     const actionType = amount >= 0 ? '관리자 포인트 지급' : '관리자 포인트 차감';
     const logColor = amount >= 0 ? '#57F287' : '#ED4245';
-    await sendPointLog(guild, actionType, `관리자에 의해 <@${targetUser.id}> 님에게 **${amount.toLocaleString()} P**가 ${amount >= 0 ? '지급' : '차감'}되었습니다.\n(이전: ${currentPoints.toLocaleString()} P ➔ 현재: ${newPoints.toLocaleString()} P)`, logColor);
+    await sendPointLog(
+      guild, 
+      actionType, 
+      `**관리자:** <@${user.id}>\n**대상:** <@${targetUser.id}>\n**변동:** **${amount.toLocaleString()} P** (${amount >= 0 ? '지급' : '차감'})\n(이전: ${currentPoints.toLocaleString()} P ➔ 현재: ${newPoints.toLocaleString()} P)`, 
+      logColor
+    );
 
     const embed = new EmbedBuilder()
       .setColor(amount >= 0 ? '#57F287' : '#ED4245')
@@ -589,8 +592,13 @@ client.on('interactionCreate', async interaction => {
     warningsData[guildId][targetUser.id] = currentWarns;
     saveData(WARNINGS_FILE, warningsData);
 
-    // 경고 부여 로그 전송
-    await sendWarningLog(guild, '경고 부여', `<@${targetUser.id}> 님에게 경고가 1회 부여되었습니다.\n(현재 경고: **${currentWarns} / 3 회**)\n사유: ${reason}`, '#FEE75C');
+    // 경고 부여 로그 전송 (실행한 관리자 정보 포함)
+    await sendWarningLog(
+      guild, 
+      '경고 부여', 
+      `**관리자:** <@${user.id}>\n**대상:** <@${targetUser.id}>\n**현재 경고:** **${currentWarns} / 3 회**\n**사유:** ${reason}`, 
+      '#FEE75C'
+    );
 
     if (currentWarns >= 3) {
       try {
@@ -599,7 +607,12 @@ client.on('interactionCreate', async interaction => {
           await member.ban({ reason: `경고 3회 누적 (사유: ${reason})` });
         }
 
-        await sendWarningLog(guild, '경고 3회 누적 - 서버 차단', `<@${targetUser.id}> 님이 경고 3회를 누적하여 서버에서 자동 차단(Ban)되었습니다.`, '#ED4245');
+        await sendWarningLog(
+          guild, 
+          '경고 3회 누적 - 서버 차단', 
+          `**대상:** <@${targetUser.id}> 님이 경고 3회를 누적하여 서버에서 자동 차단(Ban)되었습니다.`, 
+          '#ED4245'
+        );
 
         const embed = new EmbedBuilder()
           .setColor('#ED4245')
@@ -643,8 +656,13 @@ client.on('interactionCreate', async interaction => {
     warningsData[guildId][targetUser.id] = newWarns;
     saveData(WARNINGS_FILE, warningsData);
 
-    // 경고 차감 로그 전송
-    await sendWarningLog(guild, '경고 차감', `<@${targetUser.id}> 님의 경고가 1회 차감되었습니다.\n(이전 경고: ${currentWarns}회 ➔ 현재 경고: **${newWarns}회**)`, '#57F287');
+    // 경고 차감 로그 전송 (실행한 관리자 정보 포함)
+    await sendWarningLog(
+      guild, 
+      '경고 차감', 
+      `**관리자:** <@${user.id}>\n**대상:** <@${targetUser.id}>\n**변동:** 경고 1회 차감 (이전: ${currentWarns}회 ➔ 현재: **${newWarns}회**)`, 
+      '#57F287'
+    );
 
     const embed = new EmbedBuilder()
       .setColor('#57F287')
