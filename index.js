@@ -29,22 +29,23 @@ const client = new Client({
   ]
 });
 
-// --- 포인트 데이터 파일 로드 및 저장 함수 ---
+// --- 데이터 파일 관리 (포인트 & 경고) ---
 const POINTS_FILE = path.join(__dirname, 'points.json');
+const WARNINGS_FILE = path.join(__dirname, 'warnings.json');
 
-function loadPoints() {
-  if (!fs.existsSync(POINTS_FILE)) {
-    fs.writeFileSync(POINTS_FILE, JSON.stringify({}));
+function loadData(filePath) {
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, JSON.stringify({}));
   }
   try {
-    return JSON.parse(fs.readFileSync(POINTS_FILE, 'utf8'));
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch (e) {
     return {};
   }
 }
 
-function savePoints(data) {
-  fs.writeFileSync(POINTS_FILE, JSON.stringify(data, null, 2));
+function saveData(filePath, data) {
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
 // 내전 참가자 목록 (유저 ID 저장)
@@ -90,7 +91,30 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('포인트순위')
-    .setDescription('서버 내 포인트 Top 10 순위를 확인합니다.')
+    .setDescription('서버 내 포인트 Top 10 순위를 확인합니다.'),
+
+  // --- 경고 관련 명령어 추가 ---
+  new SlashCommandBuilder()
+    .setName('경고')
+    .setDescription('유저에게 경고를 부여합니다. (3회 누적 시 자동 차단)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addUserOption(option => 
+      option.setName('대상').setDescription('경고를 줄 유저').setRequired(true))
+    .addStringOption(option => 
+      option.setName('사유').setDescription('경고 부여 사유').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('경고차감')
+    .setDescription('유저의 경고를 1회 차감합니다.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addUserOption(option => 
+      option.setName('대상').setDescription('경고를 차감할 유저').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('경고확인')
+    .setDescription('유저의 현재 경고 횟수를 확인합니다.')
+    .addUserOption(option => 
+      option.setName('대상').setDescription('조회할 유저 (비워두면 본인 조회)').setRequired(false))
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
@@ -132,15 +156,17 @@ client.on('messageCreate', async (message) => {
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  const { commandName, guildId, options, user } = interaction;
-  const pointsData = loadPoints();
-
+  const { commandName, guildId, options, user, guild } = interaction;
+  
+  const pointsData = loadData(POINTS_FILE);
   if (!pointsData[guildId]) pointsData[guildId] = {};
+
+  const warningsData = loadData(WARNINGS_FILE);
+  if (!warningsData[guildId]) warningsData[guildId] = {};
 
   // [/내전인원]
   if (commandName === '내전인원') {
     await interaction.deferReply();
-    const guild = interaction.guild;
     const embed = await buildEmbed(guild);
     await interaction.editReply({ embeds: [embed] });
   }
@@ -160,7 +186,7 @@ client.on('interactionCreate', async interaction => {
     const newPoints = currentPoints + amount;
 
     pointsData[guildId][targetUser.id] = newPoints;
-    savePoints(pointsData);
+    saveData(POINTS_FILE, pointsData);
 
     const embed = new EmbedBuilder()
       .setColor(amount >= 0 ? '#57F287' : '#ED4245')
@@ -219,6 +245,96 @@ client.on('interactionCreate', async interaction => {
 
     return interaction.reply({ embeds: [embed] });
   }
+
+  // --- [/경고] ---
+  if (commandName === '경고') {
+    const targetUser = options.getUser('대상');
+    const reason = options.getString('사유') || '사유 미기재';
+
+    const currentWarns = (warningsData[guildId][targetUser.id] || 0) + 1;
+    warningsData[guildId][targetUser.id] = currentWarns;
+    saveData(WARNINGS_FILE, warningsData);
+
+    // 경고 3회 이상이면 자동 차단(Ban)
+    if (currentWarns >= 3) {
+      try {
+        const member = await guild.members.fetch(targetUser.id);
+        if (member) {
+          await member.ban({ reason: `경고 3회 누적 (사유: ${reason})` });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor('#ED4245')
+          .setTitle('🚨 경고 3회 누적 - 서버 자동 차단')
+          .setDescription(`<@${targetUser.id}> 님이 경고 **3회**를 채워 서버에서 **자동 차단(Ban)** 처리되었습니다.`)
+          .addFields({ name: '최근 경고 사유', value: reason })
+          .setTimestamp();
+
+        return interaction.reply({ embeds: [embed] });
+      } catch (err) {
+        console.error('차단 처리 오류:', err);
+        return interaction.reply({ 
+          content: `⚠️ <@${targetUser.id}> 님의 경고가 3회가 되었지만 봇의 권한 부족 등으로 차단에 실패했습니다. (봇 역할 순위 확인 필요)`, 
+          ephemeral: true 
+        });
+      }
+    }
+
+    // 경고 1~2회인 경우
+    const embed = new EmbedBuilder()
+      .setColor('#FEE75C')
+      .setTitle('⚠️ 경고 부여')
+      .setDescription(`<@${targetUser.id}> 님에게 경고 1회를 부여했습니다.`)
+      .addFields(
+        { name: '현재 경고 횟수', value: `**${currentWarns}** / 3 회`, inline: true },
+        { name: '사유', value: reason, inline: true }
+      )
+      .setFooter({ text: '경고 3회 누적 시 서버에서 자동으로 차단됩니다.' })
+      .setTimestamp();
+
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  // --- [/경고차감] ---
+  if (commandName === '경고차감') {
+    const targetUser = options.getUser('대상');
+    const currentWarns = warningsData[guildId][targetUser.id] || 0;
+
+    if (currentWarns <= 0) {
+      return interaction.reply({ content: `<@${targetUser.id}> 님은 차감할 경고가 없습니다!`, ephemeral: true });
+    }
+
+    const newWarns = currentWarns - 1;
+    warningsData[guildId][targetUser.id] = newWarns;
+    saveData(WARNINGS_FILE, warningsData);
+
+    const embed = new EmbedBuilder()
+      .setColor('#57F287')
+      .setTitle('🟢 경고 차감')
+      .setDescription(`<@${targetUser.id}> 님의 경고를 1회 차감했습니다.`)
+      .addFields(
+        { name: '이전 경고', value: `${currentWarns}회`, inline: true },
+        { name: '현재 경고', value: `**${newWarns}**회`, inline: true }
+      )
+      .setTimestamp();
+
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  // --- [/경고확인] ---
+  if (commandName === '경고확인') {
+    const targetUser = options.getUser('대상') || user;
+    const userWarns = warningsData[guildId][targetUser.id] || 0;
+
+    const embed = new EmbedBuilder()
+      .setColor('#5865F2')
+      .setAuthor({ name: targetUser.username, iconURL: targetUser.displayAvatarURL() })
+      .setTitle('📋 경고 조회')
+      .setDescription(`<@${targetUser.id}> 님의 현재 경고 횟수는 **${userWarns} / 3 회** 입니다.`)
+      .setTimestamp();
+
+    return interaction.reply({ embeds: [embed] });
+  }
 });
 
 // 명단 생성 및 티어 감지 + fow.lol 링크 자동 추출 함수
@@ -261,16 +377,22 @@ async function buildEmbed(guild) {
         const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
         const displayName = member.nickname || member.user.globalName || member.user.username;
 
-        // 3. fow.lol 전적 링크 자동 추출 (수정됨: 닉네임에 띄어쓰기가 있어도 올바르게 추출)
+        // 3. fow.lol 전적 링크 자동 추출
         let fowLink = '';
-        // 앞의 숫자/생년 제거 후 #태그 전까지의 띄어쓰기 포함 전체 닉네임을 추출하는 정규식
-        const riotIdMatch = displayName.match(/(?:^\d+\s+)?(.+?#[^\s]+)/);
+        const riotIdMatch = displayName.match(/(?:^\d+\s+)?([^#]+#[^\s]+)/);
 
         if (riotIdMatch) {
-          const fullRiotId = riotIdMatch[1].trim(); // 예: "아 콩#아코미"
-          const formattedId = fullRiotId.replace('#', '-'); // fow.lol 검색 주소 포맷 (아 콩-아코미)
-          const encodedUrl = `https://fow.lol/find/${encodeURIComponent(formattedId)}`;
-          fowLink = ` ([전적](${encodedUrl}))`;
+          let rawRiotId = riotIdMatch[1].trim(); 
+          const parts = rawRiotId.split('#');
+          if (parts.length >= 2) {
+            const namePart = parts[0].trim();
+            const tagPart = parts[1].split(/\s+/)[0];
+            const fullRiotId = `${namePart}#${tagPart}`;
+            
+            const formattedId = fullRiotId.replace('#', '-');
+            const encodedUrl = `https://fow.lol/find/${encodeURIComponent(formattedId)}`;
+            fowLink = ` ([전적](${encodedUrl}))`;
+          }
         }
 
         list.push({
@@ -294,7 +416,7 @@ async function buildEmbed(guild) {
     // 티어 순 정렬
     list.sort((a, b) => a.priority - b.priority);
 
-    // 출력 문구 조립: [티어] 닉네임 / 포지션 ([전적](fow링크))
+    // 출력 문구 조립
     list.forEach(p => {
       description += `**[${p.tierCode}]** ${p.displayName} / ${p.lineText}${p.fowLink}\n`;
     });
