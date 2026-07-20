@@ -220,7 +220,6 @@ const commands = [
   
   new SlashCommandBuilder().setName('문의패널').setDescription('문의하기 티켓 패널을 생성합니다. (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-  // 📦 [/백업] 및 📥 [/복구] 관리자 명령어 추가
   new SlashCommandBuilder().setName('백업').setDescription('봇의 모든 데이터 파일들을 백업하여 다운로드합니다. (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName('복구').setDescription('백업 JSON 파일을 첨부하여 봇 데이터를 복원합니다. (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addAttachmentOption(option => option.setName('파일').setDescription('백업했던 JSON 파일 첨부').setRequired(true)),
 
@@ -552,9 +551,12 @@ client.on('interactionCreate', async interaction => {
   if (!participantsData[guildId]) participantsData[guildId] = {};
   if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
 
+  // 💡 백업/복구 명령어만 관리자 전용으로 본인만 보이게(ephemeral: true) 설정하고, 프로필을 포함한 나머지는 모두 공개 설정
+  const isPrivateCommand = commandName === '백업' || commandName === '복구';
+
   if (!interaction.deferred && !interaction.replied) {
     try {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ ephemeral: isPrivateCommand });
     } catch (e) {}
   }
 
@@ -595,7 +597,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // --- 📥 [/복구] 명령어 구현 (백업 JSON 파일을 첨부받아 데이터 복원) ---
+    // --- 📥 [/복구] 명령어 ---
     if (commandName === '복구') {
       const attachedFile = options.getAttachment('파일');
       if (!attachedFile || !attachedFile.name.endsWith('.json')) {
@@ -610,7 +612,6 @@ client.on('interactionCreate', async interaction => {
           return await interaction.editReply({ content: '⚠️ 올바른 봇 백업 파일 형식이 아닙니다.' });
         }
 
-        // 각 데이터 파일에 덮어쓰기 복원
         if (backupData.points) saveData(POINTS_FILE, backupData.points);
         if (backupData.warnings) saveData(WARNINGS_FILE, backupData.warnings);
         if (backupData.bans) saveData(BANS_FILE, backupData.bans);
@@ -653,7 +654,7 @@ client.on('interactionCreate', async interaction => {
         new ButtonBuilder().setCustomId('ticket_etc').setLabel('기타 문의').setEmoji('💬').setStyle(ButtonStyle.Secondary)
       );
 
-      return await interaction.editReply({ ephemeral: false, content: '✅ 문의 패널이 생성되었습니다!', embeds: [embed], components: [row1, row2] });
+      return await interaction.editReply({ content: '✅ 문의 패널이 생성되었습니다!', embeds: [embed], components: [row1, row2] });
     }
 
     // --- 📊 [/포인트로그설정] ---
@@ -674,7 +675,7 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ content: `✅ 경고 로그 채널이 <#${targetChannel.id}> (으)로 설정되었습니다!` });
     }
 
-    // --- [/프로필] ---
+    // --- [/프로필] (모두가 볼 수 있는 공개 출력) ---
     if (commandName === '프로필') {
       const targetUser = options.getUser('대상') || user;
       const { displayName, matchedTier, lineText } = await getUserProfileInfo(guild, targetUser);
