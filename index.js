@@ -350,11 +350,22 @@ client.on('messageCreate', async (message) => {
   }
 });
 
+client.on('threadCreate', async (thread) => {
+  try {
+    if (thread.ownerId && thread.guild) {
+      const member = await thread.guild.members.fetch(thread.ownerId).catch(() => null);
+      if (member && !member.permissions.has(PermissionFlagsBits.Administrator)) {
+        await thread.members.remove(thread.ownerId).catch(() => {});
+      }
+    }
+  } catch (e) {}
+});
+
 client.on('interactionCreate', async interaction => {
   if (interaction.isButton()) {
     const { customId, channel, user, member, guild } = interaction;
     
-    // 티켓 생성 버튼 처리 (PublicThread로 변경하여 관리자도 볼 수 있게 수정)
+    // 티켓 생성 버튼 처리 (일반 유저가 볼 수 없도록 스레드 생성 후 자동 내보내기 처리)
     if (customId.startsWith('ticket_') && customId !== 'ticket_close' && customId !== 'ticket_delete') {
       const ticketTypeMap = {
         'ticket_server': '서버-문의',
@@ -377,8 +388,6 @@ client.on('interactionCreate', async interaction => {
           reason: '유저 문의 티켓 생성'
         });
 
-        await thread.members.add(user.id);
-
         const welcomeEmbed = new EmbedBuilder()
           .setColor('#5865F2')
           .setTitle(`🎫 ${typeName.replace('-', ' ')} 채널입니다.`)
@@ -396,6 +405,12 @@ client.on('interactionCreate', async interaction => {
         );
 
         await thread.send({ content: `<@${user.id}>`, embeds: [welcomeEmbed], components: [ticketButtons] });
+
+        // 생성한 유저가 관리자가 아니라면 스레드 목록에서 안 보이도록 멤버에서 제거 (봇과 관리자만 보임)
+        if (!member.permissions.has(PermissionFlagsBits.Administrator)) {
+          await thread.members.remove(user.id).catch(() => {});
+        }
+
         return await interaction.editReply({ content: `✅ 문의 스레드가 생성되었습니다: <#${thread.id}>` });
       } catch (err) {
         console.error('스레드 생성 오류:', err);
