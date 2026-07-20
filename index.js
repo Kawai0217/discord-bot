@@ -181,13 +181,30 @@ async function generateProfileCard(user, displayName, matchedTier, lineText, poi
   return canvas.toBuffer();
 }
 
-// 슬래시 명령어 등록
+// 슬래시 명령어 등록 (설정 누락 오류 방지 완료)
 const commands = [
-  new SlashCommandBuilder().setName('프로필').setDescription('레트로 프로필 카드를 확인합니다.').addUserOption(option => option.setName('대상').setDescription('조회할 유저').setRequired(false)),
-  new SlashCommandBuilder().setName('출석').setDescription('출석체크를 하고 포인트를 받습니다!'),
-  new SlashCommandBuilder().setName('포인트').setDescription('포인트를 확인합니다.').addUserOption(option => option.setName('대상').setRequired(false)),
-  new SlashCommandBuilder().setName('포인트순위').setDescription('포인트 순위 Top 10을 확인합니다.'),
-  new SlashCommandBuilder().setName('경고확인').setDescription('경고 횟수를 확인합니다.').addUserOption(option => option.setName('대상').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('프로필')
+    .setDescription('자신 또는 다른 유저의 레트로 프로필 카드를 확인합니다.')
+    .addUserOption(option => option.setName('대상').setDescription('조회할 유저').setRequired(false)),
+  
+  new SlashCommandBuilder()
+    .setName('출석')
+    .setDescription('출석체크를 하고 포인트를 받습니다!'),
+  
+  new SlashCommandBuilder()
+    .setName('포인트')
+    .setDescription('포인트를 확인합니다.')
+    .addUserOption(option => option.setName('대상').setDescription('조회할 유저').setRequired(false)),
+  
+  new SlashCommandBuilder()
+    .setName('포인트순위')
+    .setDescription('포인트 순위 Top 10을 확인합니다.'),
+  
+  new SlashCommandBuilder()
+    .setName('경고확인')
+    .setDescription('경고 횟수를 확인합니다.')
+    .addUserOption(option => option.setName('대상').setDescription('조회할 유저').setRequired(false)),
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
