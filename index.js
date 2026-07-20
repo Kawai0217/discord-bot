@@ -224,7 +224,7 @@ const commands = [
   new SlashCommandBuilder().setName('경고로그설정').setDescription('경고 로그 채널 설정 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addChannelOption(option => option.setName('채널').setDescription('텍스트 채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
   new SlashCommandBuilder().setName('내전인원').setDescription('내전 참가자 명단 확인 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName('명단초기화').setDescription('명단 초기화 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName('포인트지급').setDescription('포인트 지급/차감 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)).addIntegerOption(option => option.setName('포인트').setDescription('포인트').setRequired(true)),
+  new SlashCommandBuilder().setName('포인트지급').setDescription('포인트 지급/차감 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)).addIntegerOption(option => option.setName('포인트').setDescription('포인트 (음수 입력 시 차감)').setRequired(true)),
   
   new SlashCommandBuilder().setName('경고').setDescription('경고 부여 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)).addStringOption(option => option.setName('사유').setDescription('사유')),
   new SlashCommandBuilder().setName('경고차감').setDescription('경고 차감 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)),
@@ -688,13 +688,11 @@ client.on('interactionCreate', async interaction => {
       const userId = user.id;
       const userPoints = pointsData[guildId][userId] || 0;
 
-      // 상품 이름 매칭 (띄어쓰기 무시)
       let selectedItem = null;
       let cost = 0;
 
       if (rawInput.includes('경고') || rawInput.includes('차감권')) {
         selectedItem = '경고 차감권';
-        // 구매 횟수에 따른 가격 계산 (기본 3,000 P, 재구매 시마다 +2,000 P)
         if (!shopData[guildId].userTicketCounts) shopData[guildId].userTicketCounts = {};
         const buyCount = shopData[guildId].userTicketCounts[userId] || 0;
         cost = 3000 + (buyCount * 2000);
@@ -712,13 +710,11 @@ client.on('interactionCreate', async interaction => {
         return await interaction.editReply({ content: `⚠️ 포인트가 부족합니다! (필요: **${cost.toLocaleString()} P** / 보유: **${userPoints.toLocaleString()} P**)` });
       }
 
-      // 포인트 차감
       pointsData[guildId][userId] = userPoints - cost;
       saveData(POINTS_FILE, pointsData);
 
       let successDescription = `<@${userId}> 님이 **${selectedItem}** 상품을 **${cost.toLocaleString()} P**에 구매하셨습니다!`;
 
-      // 경고 차감권인 경우 즉시 경고 1회 차감 적용
       if (selectedItem === '경고 차감권') {
         if (!shopData[guildId].userTicketCounts) shopData[guildId].userTicketCounts = {};
         shopData[guildId].userTicketCounts[userId] = (shopData[guildId].userTicketCounts[userId] || 0) + 1;
@@ -735,11 +731,10 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
-      // 포인트 로그 전송
       await sendPointLog(
         guild,
         '상점 상품 구매',
-        `<@${userId}> 님 수량/상품: **${selectedItem}**\n사용 포인트: **-${cost.toLocaleString()} P**\n잔여 포인트: **${pointsData[guildId][userId].toLocaleString()} P**`,
+        `<@${userId}> 님 상품: **${selectedItem}**\n사용 포인트: **-${cost.toLocaleString()} P**\n잔여 포인트: **${pointsData[guildId][userId].toLocaleString()} P**`,
         '#57F287'
       );
 
@@ -753,7 +748,7 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 관리자 명령어 처리 ---
+    // --- 💰 [/포인트지급] (지급/차감 명확화 및 관리자 로그 전송) ---
     if (commandName === '포인트지급') {
       const targetUser = options.getUser('대상');
       const amount = options.getInteger('포인트');
@@ -761,7 +756,27 @@ client.on('interactionCreate', async interaction => {
       const newPoints = currentPoints + amount;
       pointsData[guildId][targetUser.id] = newPoints;
       saveData(POINTS_FILE, pointsData);
-      return await interaction.editReply({ content: `<@${targetUser.id}> 님에게 **${amount.toLocaleString()} P**를 지급/차감했습니다. (현재: ${newPoints} P)` });
+
+      const isPositive = amount >= 0;
+      const actionType = isPositive ? '포인트 지급' : '포인트 차감';
+      const sign = isPositive ? '+' : '';
+      const color = isPositive ? '#57F287' : '#ED4245';
+
+      const logDescription = `<@${targetUser.id}> 님에게 포인트를 ${isPositive ? '지급' : '차감'}했습니다.\n\n` +
+        `**변동 내역:** ${sign}${amount.toLocaleString()} P\n` +
+        `**현재 보유 포인트:** ${newPoints.toLocaleString()} P\n` +
+        `**처리 관리자:** <@${user.id}>`;
+
+      // 포인트 로그 채널 전송
+      await sendPointLog(guild, actionType, logDescription, color);
+
+      const embed = new EmbedBuilder()
+        .setColor(color)
+        .setTitle(`💳 ${actionType}`)
+        .setDescription(logDescription)
+        .setTimestamp();
+
+      return await interaction.editReply({ embeds: [embed] });
     }
 
     // --- ⚠️ [/경고] ---
