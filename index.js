@@ -118,17 +118,17 @@ async function sendWarningLog(guild, title, description, color = '#ED4245') {
 
 // 디스코드 역할 이름 매칭 패턴 정의
 const tierInfo = [
-  { keywords: ['챌린저', '챌'], code: 'C', name: 'Challenger', priority: 1, color: '#F4C430' },
-  { keywords: ['그랜드마스터', '그마'], code: 'GM', name: 'Grandmaster', priority: 2, color: '#CD7F32' },
-  { keywords: ['마스터', '마'], code: 'M', name: 'Master', priority: 3, color: '#9932CC' },
-  { keywords: ['다이아몬드', '다이아', '다'], code: 'D', name: 'Diamond', priority: 4, color: '#00BFFF' },
-  { keywords: ['에메랄드', '에메', '에'], code: 'E', name: 'Emerald', priority: 5, color: '#2E8B57' },
-  { keywords: ['플래티넘', '플레티넘', '플래', '플레', '플'], code: 'P', name: 'Platinum', priority: 6, color: '#20B2AA' },
-  { keywords: ['골드', '골'], code: 'G', name: 'Gold', priority: 7, color: '#FFD700' },
-  { keywords: ['실버', '실'], code: 'S', name: 'Silver', priority: 8, color: '#C0C0C0' },
-  { keywords: ['브론즈', '브'], code: 'B', name: 'Bronze', priority: 9, color: '#CD853F' },
-  { keywords: ['아이언', '아'], code: 'I', name: 'Iron', priority: 10, color: '#708090' },
-  { keywords: ['언랭'], code: 'U', name: 'Unranked', priority: 11, color: '#808080' }
+  { keywords: ['챌린저', '챌'], code: 'C', name: 'Challenger', color: '#FFD700' },
+  { keywords: ['그랜드마스터', '그마'], code: 'GM', name: 'Grandmaster', color: '#FF8C00' },
+  { keywords: ['마스터', '마'], code: 'M', name: 'Master', color: '#BA55D3' },
+  { keywords: ['다이아몬드', '다이아', '다'], code: 'D', name: 'Diamond', color: '#00BFFF' },
+  { keywords: ['에메랄드', '에메', '에'], code: 'E', name: 'Emerald', color: '#00FA9A' },
+  { keywords: ['플래티넘', '플레티넘', '플래', '플레', '플'], code: 'P', name: 'Platinum', color: '#20B2AA' },
+  { keywords: ['골드', '골'], code: 'G', name: 'Gold', color: '#FFD700' },
+  { keywords: ['실버', '실'], code: 'S', name: 'Silver', color: '#C0C0C0' },
+  { keywords: ['브론즈', '브'], code: 'B', name: 'Bronze', color: '#CD853F' },
+  { keywords: ['아이언', '아'], code: 'I', name: 'Iron', color: '#708090' },
+  { keywords: ['언랭'], code: 'U', name: 'Unranked', color: '#808080' }
 ];
 
 const lineKeywords = ['탑', '정글', '미드', '원딜', '서폿'];
@@ -139,7 +139,7 @@ async function getUserProfileInfo(guild, user) {
     const member = await guild.members.fetch(user.id);
     const userRoleNames = member.roles.cache.map(r => r.name.toLowerCase());
 
-    let matchedTier = { code: 'U', name: 'Unranked', priority: 11, color: '#808080' };
+    let matchedTier = { code: 'U', name: 'Unranked', color: '#808080' };
     for (const t of tierInfo) {
       const isMatch = userRoleNames.some(roleName => 
         t.keywords.some(kw => roleName.includes(kw.toLowerCase()))
@@ -172,21 +172,31 @@ async function getUserProfileInfo(guild, user) {
   }
 }
 
-// 🎨 background.png와 font.ttf를 활용한 커스텀 프로필 카드 생성 함수
+// 🎨 글씨 크기를 키우고 가독성을 극대화한 프로필 카드 생성 함수
 async function generateProfileCard(user, displayName, matchedTier, lineText, points, warns) {
   const canvas = createCanvas(800, 450);
   const ctx = canvas.getContext('2d');
 
-  // 1. 배경 이미지(background.png) 불러오기
+  // 1. 배경 이미지 로드
   try {
     const bgImage = await loadImage(path.join(__dirname, 'background.png'));
     ctx.drawImage(bgImage, 0, 0, 800, 450);
   } catch (e) {
-    ctx.fillStyle = '#111318';
+    ctx.fillStyle = '#ffb6c1';
     ctx.fillRect(0, 0, 800, 450);
   }
 
-  // 2. 유저 프로필 아바타 원형으로 그리기
+  // 글자 테두리(그림자) 효과 헬퍼 함수
+  const drawTextWithShadow = (text, x, y, font, fillColor) => {
+    ctx.font = font;
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 4;
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = fillColor;
+    ctx.fillText(text, x, y);
+  };
+
+  // 2. 프로필 아바타 원형 그리기
   try {
     const avatarURL = user.displayAvatarURL({ extension: 'png', size: 128 });
     const avatar = await loadImage(avatarURL);
@@ -199,9 +209,9 @@ async function generateProfileCard(user, displayName, matchedTier, lineText, poi
     ctx.restore();
 
     ctx.strokeStyle = matchedTier.color;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.arc(105, 135, 56, 0, Math.PI * 2, true);
+    ctx.arc(105, 135, 57, 0, Math.PI * 2, true);
     ctx.stroke();
   } catch (e) {
     ctx.fillStyle = '#444';
@@ -210,52 +220,40 @@ async function generateProfileCard(user, displayName, matchedTier, lineText, poi
     ctx.fill();
   }
 
-  // 3. 둥근모꼴 폰트로 텍스트 레이아웃 배치
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '26px CustomFont';
-  ctx.fillText(displayName, 185, 115);
-
-  ctx.font = '18px CustomFont';
-  ctx.fillStyle = '#d0d0d0';
-  ctx.fillText(`티어 : ${matchedTier.name} [${matchedTier.code}]`, 185, 155);
-  ctx.fillText(`주요 라인 : ${lineText}`, 185, 190);
-
-  ctx.font = '18px CustomFont';
-  ctx.fillStyle = '#57F287';
-  ctx.fillText(`보유 포인트 : ${points.toLocaleString()} P`, 185, 270);
-
-  ctx.fillStyle = warns > 0 ? '#ED4245' : '#ffffff';
-  ctx.fillText(`누적 경고 : ${warns}회`, 480, 270);
+  // 3. 카드 내부 텍스트 배치
+  drawTextWithShadow(displayName, 185, 115, '34px CustomFont', '#ffffff');
+  drawTextWithShadow(`티어 : ${matchedTier.name} [${matchedTier.code}]`, 185, 160, '22px CustomFont', '#00ffff');
+  drawTextWithShadow(`주요 라인 : ${lineText}`, 185, 200, '22px CustomFont', '#ffeb3b');
+  drawTextWithShadow(`보유 포인트 : ${points.toLocaleString()} P`, 185, 285, '22px CustomFont', '#76ff03');
+  
+  const warnColor = warns > 0 ? '#ff1744' : '#ffffff';
+  drawTextWithShadow(`누적 경고 : ${warns}회`, 490, 285, '22px CustomFont', warnColor);
 
   return canvas.toBuffer();
 }
 
-// 슬래시 명령어 정의
+// 전체 슬래시 명령어 정의
 const commands = [
-  new SlashCommandBuilder()
-    .setName('프로필')
-    .setDescription('자신 또는 다른 유저의 레트로 프로필 카드를 확인합니다.')
-    .addUserOption(option => 
-      option.setName('대상').setDescription('조회할 유저 (비워두면 본인 프로필 조회)').setRequired(false)),
-
-  new SlashCommandBuilder().setName('출석').setDescription('하루에 한 번 출석체크를 하고 50 포인트를 받습니다!'),
+  new SlashCommandBuilder().setName('프로필').setDescription('레트로 프로필 카드를 확인합니다.').addUserOption(option => option.setName('대상').setDescription('조회할 유저').setRequired(false)),
+  new SlashCommandBuilder().setName('출석').setDescription('출석체크를 하고 포인트를 받습니다!'),
   new SlashCommandBuilder().setName('포인트').setDescription('포인트를 확인합니다.').addUserOption(option => option.setName('대상').setDescription('조회할 유저').setRequired(false)),
-  new SlashCommandBuilder().setName('포인트순위').setDescription('서버 내 포인트 Top 10 순위를 확인합니다.'),
-  new SlashCommandBuilder().setName('경고확인').setDescription('유저의 현재 경고 횟수를 확인합니다.').addUserOption(option => option.setName('대상').setDescription('조회할 유저').setRequired(false)),
+  new SlashCommandBuilder().setName('포인트순위').setDescription('포인트 순위 Top 10을 확인합니다.'),
+  new SlashCommandBuilder().setName('경고확인').setDescription('경고 횟수를 확인합니다.').addUserOption(option => option.setName('대상').setDescription('조회할 유저').setRequired(false)),
   new SlashCommandBuilder().setName('상점').setDescription('포인트로 구매 가능한 상점 목록을 확인합니다.'),
-  new SlashCommandBuilder().setName('상점구매').setDescription('포인트를 사용하여 상점의 상품을 구매합니다.').addStringOption(option => option.setName('상품이름').setDescription('상품 이름').setRequired(true)),
-
-  new SlashCommandBuilder().setName('포인트로그설정').setDescription('포인트 로그 채널 설정 (관리자 전용)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addChannelOption(option => option.setName('채널').setDescription('채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
-  new SlashCommandBuilder().setName('경고로그설정').setDescription('경고 로그 채널 설정 (관리자 전용)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addChannelOption(option => option.setName('채널').setDescription('채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
-  new SlashCommandBuilder().setName('내전인원').setDescription('내전 참가자 명단 확인 (관리자 전용)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName('명단초기화').setDescription('명단 초기화 (관리자 전용)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder().setName('포인트지급').setDescription('포인트 지급 (관리자 전용)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setRequired(true)).addIntegerOption(option => option.setName('포인트').setRequired(true)),
-  new SlashCommandBuilder().setName('경고').setDescription('경고 부여 (관리자 전용)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setRequired(true)).addStringOption(option => option.setName('사유')),
-  new SlashCommandBuilder().setName('경고차감').setDescription('경고 차감 (관리자 전용)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setRequired(true)),
-  new SlashCommandBuilder().setName('내전정지').setDescription('내전 정지 (관리자 전용)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setRequired(true)).addStringOption(option => option.setName('사유')),
-  new SlashCommandBuilder().setName('내전정지해제').setDescription('정지 해제 (관리자 전용)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setRequired(true)),
-  new SlashCommandBuilder().setName('상점등록').setDescription('상점 등록 (관리자 전용)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addRoleOption(option => option.setName('역할').setRequired(true)).addIntegerOption(option => option.setName('가격').setRequired(true)).addStringOption(option => option.setName('설명')),
-  new SlashCommandBuilder().setName('상점삭제').setDescription('상점 삭제 (관리자 전용)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addRoleOption(option => option.setName('역할').setRequired(true))
+  new SlashCommandBuilder().setName('상점구매').setDescription('상점의 상품을 구매합니다.').addStringOption(option => option.setName('상품이름').setDescription('상품 이름').setRequired(true)),
+  
+  // 관리자 명령어
+  new SlashCommandBuilder().setName('포인트로그설정').setDescription('포인트 로그 채널 설정 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addChannelOption(option => option.setName('채널').setDescription('텍스트 채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
+  new SlashCommandBuilder().setName('경고로그설정').setDescription('경고 로그 채널 설정 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addChannelOption(option => option.setName('채널').setDescription('텍스트 채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
+  new SlashCommandBuilder().setName('내전인원').setDescription('내전 참가자 명단 확인 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName('명단초기화').setDescription('명단 초기화 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName('포인트지급').setDescription('포인트 지급/차감 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)).addIntegerOption(option => option.setName('포인트').setDescription('포인트').setRequired(true)),
+  new SlashCommandBuilder().setName('경고').setDescription('경고 부여 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)).addStringOption(option => option.setName('사유').setDescription('사유')),
+  new SlashCommandBuilder().setName('경고차감').setDescription('경고 차감 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)),
+  new SlashCommandBuilder().setName('내전정지').setDescription('내전 정지 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)).addStringOption(option => option.setName('사유').setDescription('사유')),
+  new SlashCommandBuilder().setName('내전정지해제').setDescription('정지 해제 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(option => option.setName('대상').setDescription('대상').setRequired(true)),
+  new SlashCommandBuilder().setName('상점등록').setDescription('상점 역할 등록 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addRoleOption(option => option.setName('역할').setDescription('역할').setRequired(true)).addIntegerOption(option => option.setName('가격').setDescription('가격').setRequired(true)).addStringOption(option => option.setName('설명').setDescription('설명')),
+  new SlashCommandBuilder().setName('상점삭제').setDescription('상점 역할 삭제 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addRoleOption(option => option.setName('역할').setDescription('역할').setRequired(true))
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
@@ -266,7 +264,7 @@ client.once('ready', async () => {
     for (const guildId of guilds) {
       await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: commands });
     }
-    console.log('✅ 슬래시 명령어 등록 완료!');
+    console.log('✅ 모든 슬래시 명령어 등록 완료!');
   } catch (error) {
     console.error('명령어 등록 오류:', error);
   }
@@ -275,6 +273,7 @@ client.once('ready', async () => {
   setInterval(checkVoiceChannels, 60 * 1000);
 });
 
+// 음성 채널 보상
 async function checkVoiceChannels() {
   const pointsData = loadData(POINTS_FILE);
   client.guilds.cache.forEach(async guild => {
@@ -325,27 +324,57 @@ async function checkExpiredBans() {
   if (hasChanged) saveData(BANS_FILE, bansData);
 }
 
+// 채팅 내전 신청 ('ㅅ', '손', 't')
+client.on('messageCreate', async (message) => {
+  if (message.author.bot) return;
+  const text = message.content.trim();
+  if (text === 'ㅅ' || text === '손' || text === 't') {
+    const userId = message.author.id;
+    const guildId = message.guild?.id;
+    if (!guildId) return;
+    const channelId = message.channel.id;
+
+    const participantsData = loadData(PARTICIPANTS_FILE);
+    if (!participantsData[guildId]) participantsData[guildId] = {};
+    if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
+
+    if (participantsData[guildId][channelId].includes(userId)) {
+      await message.react('⚠️');
+      return;
+    }
+    participantsData[guildId][channelId].push(userId);
+    saveData(PARTICIPANTS_FILE, participantsData);
+    await message.react('✅');
+  }
+});
+
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  const { commandName, guildId, options, user, guild } = interaction;
+  const { commandName, guildId, options, user, guild, channel } = interaction;
+  const channelId = channel.id;
+
   const pointsData = loadData(POINTS_FILE);
   if (!pointsData[guildId]) pointsData[guildId] = {};
   const warningsData = loadData(WARNINGS_FILE);
   if (!warningsData[guildId]) warningsData[guildId] = {};
+  const bansData = loadData(BANS_FILE);
+  if (!bansData[guildId]) bansData[guildId] = {};
+  const shopData = loadData(SHOP_FILE);
+  if (!shopData[guildId]) shopData[guildId] = { items: {}, userTicketCounts: {} };
+  const participantsData = loadData(PARTICIPANTS_FILE);
+  if (!participantsData[guildId]) participantsData[guildId] = {};
+  if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
 
   // --- [/프로필] ---
   if (commandName === '프로필') {
-    // 1단계: 응답 지연을 방지하기 위해 먼저 빠른 deferReply 실행
     await interaction.deferReply();
-
     const targetUser = options.getUser('대상') || user;
     const { displayName, matchedTier, lineText } = await getUserProfileInfo(guild, targetUser);
     const userPoints = pointsData[guildId][targetUser.id] || 0;
     const userWarns = warningsData[guildId][targetUser.id] || 0;
 
     try {
-      // 2단계: 이미지를 그린 후 안전하게 editReply로 전송
       const cardBuffer = await generateProfileCard(targetUser, displayName, matchedTier, lineText, userPoints, userWarns);
       const attachment = new AttachmentBuilder(cardBuffer, { name: 'retro-profile.png' });
       return await interaction.editReply({ files: [attachment] });
@@ -396,7 +425,8 @@ client.on('interactionCreate', async interaction => {
 
     let rankingText = '';
     sortedUsers.forEach((item, index) => {
-      rankingText += `**${index + 1위}** <@${item.userId}> - **${item.points.toLocaleString()} P**\n`;
+      const rankNum = index + 1;
+      rankingText += `**${rankNum}위** <@${item.userId}> - **${item.points.toLocaleString()} P**\n`;
     });
 
     const embed = new EmbedBuilder().setColor('#FEE75C').setTitle('🏆 포인트 순위 Top 10').setDescription(rankingText);
@@ -408,6 +438,66 @@ client.on('interactionCreate', async interaction => {
     const targetUser = options.getUser('대상') || user;
     const userWarns = warningsData[guildId][targetUser.id] || 0;
     return interaction.reply({ content: `<@${targetUser.id}> 님의 현재 경고 횟수는 **${userWarns} / 3 회** 입니다.` });
+  }
+
+  // --- [/상점] ---
+  if (commandName === '상점') {
+    const itemsObj = shopData[guildId].items || {};
+    const items = Object.values(itemsObj);
+    let itemListText = `**1. 🎟️ 경고 차감권** - \`3,000 P\`\n**2. 🏷️ 커스텀역할** - \`30,000 P\`\n**3. 📚 강의권** - \`5,000 P\`\n\n`;
+    let idx = 4;
+    items.forEach(item => {
+      itemListText += `**${idx}. <@&${item.roleId}>** - \`${item.price.toLocaleString()} P\`\n`;
+      idx++;
+    });
+
+    const userPoints = pointsData[guildId][user.id] || 0;
+    const embed = new EmbedBuilder().setColor('#FEE75C').setTitle('🛒 포인트 상점').setDescription(itemListText).addFields({ name: '내 포인트', value: `${userPoints.toLocaleString()} P` });
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  // --- 관리자 명령어 처리 ---
+  if (commandName === '포인트지급') {
+    const targetUser = options.getUser('대상');
+    const amount = options.getInteger('포인트');
+    const currentPoints = pointsData[guildId][targetUser.id] || 0;
+    const newPoints = currentPoints + amount;
+    pointsData[guildId][targetUser.id] = newPoints;
+    saveData(POINTS_FILE, pointsData);
+    return interaction.reply({ content: `<@${targetUser.id}> 님에게 **${amount.toLocaleString()} P**를 지급/차감했습니다. (현재: ${newPoints} P)` });
+  }
+
+  if (commandName === '경고') {
+    const targetUser = options.getUser('대상');
+    const reason = options.getString('사유') || '사유 미기재';
+    const currentWarns = (warningsData[guildId][targetUser.id] || 0) + 1;
+    warningsData[guildId][targetUser.id] = currentWarns;
+    saveData(WARNINGS_FILE, warningsData);
+    return interaction.reply({ content: `<@${targetUser.id}> 님에게 경고 1회를 부여했습니다. (현재 ${currentWarns}회 / 사유: ${reason})` });
+  }
+
+  if (commandName === '경고차감') {
+    const targetUser = options.getUser('대상');
+    const currentWarns = warningsData[guildId][targetUser.id] || 0;
+    if (currentWarns <= 0) return interaction.reply({ content: '차감할 경고가 없습니다!', ephemeral: true });
+    const newWarns = currentWarns - 1;
+    warningsData[guildId][targetUser.id] = newWarns;
+    saveData(WARNINGS_FILE, warningsData);
+    return interaction.reply({ content: `<@${targetUser.id}> 님의 경고를 1회 차감했습니다. (현재 ${newWarns}회)` });
+  }
+
+  if (commandName === '내전인원') {
+    await interaction.deferReply();
+    const currentParticipants = participantsData[guildId][channelId] || [];
+    let desc = currentParticipants.length === 0 ? '참가자가 없습니다.' : currentParticipants.map(id => `<@${id}>`).join('\n');
+    const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎮 내전 참가자 명단').setDescription(desc);
+    return interaction.editReply({ embeds: [embed] });
+  }
+
+  if (commandName === '명단초기화') {
+    participantsData[guildId][channelId] = [];
+    saveData(PARTICIPANTS_FILE, participantsData);
+    return interaction.reply({ content: '🔄 내전 참가자 명단이 초기화되었습니다!' });
   }
 });
 
