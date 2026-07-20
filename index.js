@@ -370,33 +370,51 @@ client.on('interactionCreate', async interaction => {
       await interaction.deferReply({ ephemeral: true });
 
       try {
-        // 부모 카테고리 내에 비공개 텍스트 채널 생성
-        const ticketChannel = await guild.channels.create({
-          name: channelName,
-          type: ChannelType.GuildText,
-          parent: channel.parentId || null,
-          permissionOverwrites: [
-            {
-              id: guild.id, // @everyone (일반 유저) 보기 권한 완전 차단
-              deny: [PermissionFlagsBits.ViewChannel]
-            },
-            {
-              id: user.id, // 티켓을 연 본인 허용
+        // 부모 카테고리 내에 비공개 텍스트 채널 생성 및 관리자 전체 자동 권한 부여
+        const permissionOverwrites = [
+          {
+            id: guild.id, // @everyone 보기 권한 차단
+            deny: [PermissionFlagsBits.ViewChannel]
+          },
+          {
+            id: user.id, // 티켓 연 본인 허용
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+              PermissionFlagsBits.ReadMessageHistory
+            ]
+          },
+          {
+            id: client.user.id, // 봇 허용
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+              PermissionFlagsBits.ManageChannels
+            ]
+          }
+        ];
+
+        // 서버 내 관리자 권한을 가진 유저/역할들에게도 채널 권한 미리 부여
+        try {
+          await guild.members.fetch();
+          const admins = guild.members.cache.filter(m => m.permissions.has(PermissionFlagsBits.Administrator) && !m.user.bot);
+          for (const [adminId] of admins) {
+            permissionOverwrites.push({
+              id: adminId,
               allow: [
                 PermissionFlagsBits.ViewChannel,
                 PermissionFlagsBits.SendMessages,
                 PermissionFlagsBits.ReadMessageHistory
               ]
-            },
-            {
-              id: client.user.id, // 봇 허용
-              allow: [
-                PermissionFlagsBits.ViewChannel,
-                PermissionFlagsBits.SendMessages,
-                PermissionFlagsBits.ManageChannels
-              ]
-            }
-          ]
+            });
+          }
+        } catch (e) {}
+
+        const ticketChannel = await guild.channels.create({
+          name: channelName,
+          type: ChannelType.GuildText,
+          parent: channel.parentId || null,
+          permissionOverwrites: permissionOverwrites
         });
 
         const welcomeEmbed = new EmbedBuilder()
@@ -428,12 +446,19 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ content: '⚠️ 티켓 마감은 관리자만 할 수 있습니다!', ephemeral: true });
       }
 
-      await interaction.reply({ content: '🔒 티켓이 마감되었습니다. 5초 뒤에 채널이 삭제됩니다.', ephemeral: false });
-      setTimeout(async () => {
-        try {
-          await channel.delete();
-        } catch (e) {}
-      }, 5000);
+      await interaction.reply({ content: '🔒 티켓이 마감되었습니다. (채널은 삭제되지 않으며, 관리자용 삭제 버튼으로 지울 수 있습니다.)', ephemeral: false });
+      
+      // 채널을 삭제하지 않고 유저의 메시지 전송 권한만 막거나 잠금 처리
+      try {
+        // 티켓을 연 유저 찾기 (채널 권한 오버라이트에서 봇과 관리자 제외한 유저 탐색)
+        const overwrites = channel.permissionOverwrites.cache;
+        for (const [id, overwrite] of overwrites) {
+          if (id !== guild.id && id !== client.user.id && !guild.members.cache.get(id)?.permissions.has(PermissionFlagsBits.Administrator)) {
+            await channel.permissionOverwrites.edit(id, { SendMessages: false });
+          }
+        }
+      } catch (e) {}
+
       return;
     }
 
@@ -1038,7 +1063,7 @@ client.on('interactionCreate', async interaction => {
         .setDescription(`<@${targetUser.id}> 님의 '${CIVIL_WAR_ROLE_NAME}' 역할을 회수했습니다.`)
         .addFields(
           { name: '사유', value: reason },
-          { name: '자동 해제 일시', value: unDateStr }
+          { name: '자동 해제 일시', value: unbanDateStr }
         )
         .setFooter({ text: '일주일 뒤 자동으로 내전 역할이 복구됩니다.' })
         .setTimestamp();
