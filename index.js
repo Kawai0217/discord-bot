@@ -354,7 +354,7 @@ client.on('interactionCreate', async interaction => {
   if (interaction.isButton()) {
     const { customId, channel, user, member, guild } = interaction;
     
-    // 티켓 생성 버튼 처리
+    // 티켓 생성 버튼 처리 (PublicThread로 변경하여 관리자도 볼 수 있게 수정)
     if (customId.startsWith('ticket_') && customId !== 'ticket_close' && customId !== 'ticket_delete') {
       const ticketTypeMap = {
         'ticket_server': '서버-문의',
@@ -373,7 +373,7 @@ client.on('interactionCreate', async interaction => {
         const thread = await channel.threads.create({
           name: threadName,
           autoArchiveDuration: 1440,
-          type: ChannelType.PrivateThread,
+          type: ChannelType.PublicThread,
           reason: '유저 문의 티켓 생성'
         });
 
@@ -551,7 +551,6 @@ client.on('interactionCreate', async interaction => {
   if (!participantsData[guildId]) participantsData[guildId] = {};
   if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
 
-  // 💡 백업/복구 명령어만 관리자 전용으로 본인만 보이게(ephemeral: true) 설정하고, 프로필을 포함한 나머지는 모두 공개 설정
   const isPrivateCommand = commandName === '백업' || commandName === '복구';
 
   if (!interaction.deferred && !interaction.replied) {
@@ -561,7 +560,6 @@ client.on('interactionCreate', async interaction => {
   }
 
   try {
-    // --- 📦 [/백업] 명령어 ---
     if (commandName === '백업') {
       const backupObj = {
         timestamp: new Date().toISOString(),
@@ -597,7 +595,6 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // --- 📥 [/복구] 명령어 ---
     if (commandName === '복구') {
       const attachedFile = options.getAttachment('파일');
       if (!attachedFile || !attachedFile.name.endsWith('.json')) {
@@ -628,13 +625,12 @@ client.on('interactionCreate', async interaction => {
       }
     }
 
-    // --- ✉️ [/문의패널] ---
     if (commandName === '문의패널') {
       const embed = new EmbedBuilder()
         .setColor('#5865F2')
         .setTitle('✉️ 문의하기')
         .setDescription(
-          '아래 버튼 중 문의 유형을 골라 누르면, 관리자와 대화할 수 있는 비공개 채널이 생성됩니다.\n\n' +
+          '아래 버튼 중 문의 유형을 골라 누르면, 관리자와 대화할 수 있는 채널이 생성됩니다.\n\n' +
           '🏠 서버 문의\n' +
           '🚨 유저 신고 및 분쟁 관련\n' +
           '🪪 명의 인증\n' +
@@ -657,7 +653,6 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ content: '✅ 문의 패널이 생성되었습니다!', embeds: [embed], components: [row1, row2] });
     }
 
-    // --- 📊 [/포인트로그설정] ---
     if (commandName === '포인트로그설정') {
       const targetChannel = options.getChannel('채널');
       const logConfig = loadData(LOG_CONFIG_FILE);
@@ -666,7 +661,6 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ content: `✅ 포인트 로그 채널이 <#${targetChannel.id}> (으)로 설정되었습니다!` });
     }
 
-    // --- 🚨 [/경고로그설정] ---
     if (commandName === '경고로그설정') {
       const targetChannel = options.getChannel('채널');
       const warningLogConfig = loadData(WARNING_LOG_CONFIG_FILE);
@@ -675,7 +669,6 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ content: `✅ 경고 로그 채널이 <#${targetChannel.id}> (으)로 설정되었습니다!` });
     }
 
-    // --- [/프로필] (모두가 볼 수 있는 공개 출력) ---
     if (commandName === '프로필') {
       const targetUser = options.getUser('대상') || user;
       const { displayName, matchedTier, lineText } = await getUserProfileInfo(guild, targetUser);
@@ -687,7 +680,6 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ files: [attachment] });
     }
 
-    // --- [/출석] ---
     if (commandName === '출석') {
       const todayStr = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
       const attendanceData = loadData(ATTENDANCE_FILE);
@@ -707,14 +699,12 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ content: `📅 출석체크 완료! **50 P**가 지급되었습니다. (보유: ${newPoints} P)` });
     }
 
-    // --- [/포인트] ---
     if (commandName === '포인트') {
       const targetUser = options.getUser('대상') || user;
       const userPoints = pointsData[guildId][targetUser.id] || 0;
       return await interaction.editReply({ content: `<@${targetUser.id}> 님의 현재 포인트는 **${userPoints.toLocaleString()} P** 입니다.` });
     }
 
-    // --- [/포인트순위] ---
     if (commandName === '포인트순위') {
       const serverPoints = pointsData[guildId] || {};
       const sortedUsers = Object.keys(serverPoints)
@@ -736,14 +726,12 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- [/경고확인] ---
     if (commandName === '경고확인') {
       const targetUser = options.getUser('대상') || user;
       const userWarns = warningsData[guildId][targetUser.id] || 0;
       return await interaction.editReply({ content: `<@${targetUser.id}> 님의 현재 경고 횟수는 **${userWarns} / 3 회** 입니다.` });
     }
 
-    // --- 🛒 [/상점] ---
     if (commandName === '상점') {
       const userPoints = pointsData[guildId][user.id] || 0;
       let shopDesc = '**1. 🎟️ 경고 차감권**\n' +
@@ -773,7 +761,6 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 🛒 [/상점구매] ---
     if (commandName === '상점구매') {
       const rawInput = options.getString('상품이름').trim().toLowerCase();
       const userId = user.id;
@@ -879,7 +866,6 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 🛠️ [/상점등록] ---
     if (commandName === '상점등록') {
       const targetRole = options.getRole('역할');
       const price = options.getInteger('가격');
@@ -903,7 +889,6 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 🛠️ [/상점삭제] ---
     if (commandName === '상점삭제') {
       const targetRole = options.getRole('역할');
 
@@ -917,7 +902,6 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ content: `🗑️ <@&${targetRole.id}> 역할 상품이 상점에서 삭제되었습니다.` });
     }
 
-    // --- 💰 [/포인트지급] ---
     if (commandName === '포인트지급') {
       const targetUser = options.getUser('대상');
       const amount = options.getInteger('포인트');
@@ -947,7 +931,6 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- ⚠️ [/경고] ---
     if (commandName === '경고') {
       const targetUser = options.getUser('대상');
       const reason = options.getString('사유') || '사유 미기재';
@@ -976,7 +959,6 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- ⚠️ [/경고차감] ---
     if (commandName === '경고차감') {
       const targetUser = options.getUser('대상');
       const currentWarns = warningsData[guildId][targetUser.id] || 0;
@@ -1071,7 +1053,6 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 🎮 [/내전인원] ---
     if (commandName === '내전인원') {
       const currentParticipants = participantsData[guildId][channelId] || [];
       if (currentParticipants.length === 0) {
