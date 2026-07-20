@@ -86,14 +86,14 @@ async function sendPointLog(guild, title, description, color = '#5865F2') {
   } catch (err) {}
 }
 
-async function sendWarningLog(guild, title, description, color = '#ED4245') {
+async function sendWarningLog(guild, title, description, color = '#FEE75C') {
   try {
     const logConfig = loadData(WARNING_LOG_CONFIG_FILE);
     const channelId = logConfig[guild.id];
     if (!channelId) return;
     const channel = await guild.channels.fetch(channelId).catch(() => null);
     if (!channel) return;
-    const embed = new EmbedBuilder().setColor(color).setTitle(`🚨 ${title}`).setDescription(description).setTimestamp();
+    const embed = new EmbedBuilder().setColor(color).setTitle(`⚠️ ${title}`).setDescription(description).setTimestamp();
     await channel.send({ embeds: [embed] });
   } catch (err) {}
 }
@@ -336,11 +336,9 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async interaction => {
-  // 1. 버튼 클릭 상호작용 처리
   if (interaction.isButton()) {
     const { customId, channel, user, member, guild } = interaction;
     
-    // 티켓 생성 버튼 처리
     if (customId.startsWith('ticket_') && customId !== 'ticket_close' && customId !== 'ticket_delete') {
       const ticketTypeMap = {
         'ticket_server': '서버-문의',
@@ -370,7 +368,6 @@ client.on('interactionCreate', async interaction => {
           .setTitle(`🎫 ${typeName.replace('-', ' ')} 채널입니다.`)
           .setDescription(`<@${user.id}> 님, 문의 내용을 남겨주시면 관리자가 확인 후 답변해 드립니다.\n\n업무가 완료되면 아래 버튼을 눌러 티켓을 닫아주세요.`);
 
-        // 티켓 닫기 / 티켓 삭제 버튼 배치
         const ticketButtons = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId('ticket_close')
@@ -386,11 +383,10 @@ client.on('interactionCreate', async interaction => {
         return await interaction.editReply({ content: `✅ 문의 스레드가 생성되었습니다: <#${thread.id}>` });
       } catch (err) {
         console.error('스레드 생성 오류:', err);
-        return await interaction.editReply({ content: '⚠️ 스레드 생성 중 오류가 발생했습니다. (봇에게 비공개 스레드 생성 권한이 있는지 확인해주세요)' });
+        return await interaction.editReply({ content: '⚠️ 스레드 생성 중 오류가 발생했습니다.' });
       }
     }
 
-    // 티켓 닫기 버튼 처리 (누구나/유저도 가능)
     if (customId === 'ticket_close') {
       if (!channel.isThread()) {
         return interaction.reply({ content: '⚠️ 스레드 채널에서만 사용할 수 있습니다.', ephemeral: true });
@@ -398,22 +394,21 @@ client.on('interactionCreate', async interaction => {
 
       await interaction.reply({ content: '🔒 티켓이 닫혔습니다. 관리자가 확인 후 삭제할 수 있습니다.', ephemeral: false });
       try {
-        await channel.setArchived(true); // 스레드 닫기(보관)
+        await channel.setArchived(true);
       } catch (e) {}
       return;
     }
 
-    // 티켓 삭제 버튼 처리 (오직 관리자만 가능)
     if (customId === 'ticket_delete') {
       if (!member.permissions.has(PermissionFlagsBits.Administrator)) {
         return interaction.reply({ content: '⚠️ 티켓 삭제는 관리자만 할 수 있습니다!', ephemeral: true });
       }
 
-      await interaction.reply({ content: '🗑️ 5초 뒤에 티켓(스레드가) 영구 삭제됩니다...', ephemeral: false });
+      await interaction.reply({ content: '🗑️ 5초 뒤에 티켓이 영구 삭제됩니다...', ephemeral: false });
       setTimeout(async () => {
         try {
           if (channel.isThread()) {
-            await channel.delete(); // 스레드 완전 삭제
+            await channel.delete();
           }
         } catch (e) {}
       }, 5000);
@@ -438,6 +433,7 @@ client.on('interactionCreate', async interaction => {
   if (!participantsData[guildId]) participantsData[guildId] = {};
   if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
 
+  // 안전한 응답 처리를 위해 선제 deferReply 사용 (경고로그설정 무한 로딩 해결)
   if (!interaction.deferred && !interaction.replied) {
     try {
       await interaction.deferReply({ ephemeral: false });
@@ -445,7 +441,7 @@ client.on('interactionCreate', async interaction => {
   }
 
   try {
-    // --- ✉️ [/문의패널] 생성 명령어 ---
+    // --- ✉️ [/문의패널] ---
     if (commandName === '문의패널') {
       const embed = new EmbedBuilder()
         .setColor('#5865F2')
@@ -472,6 +468,24 @@ client.on('interactionCreate', async interaction => {
       );
 
       return await interaction.editReply({ content: '✅ 문의 패널이 생성되었습니다!', embeds: [embed], components: [row1, row2] });
+    }
+
+    // --- 📊 [/포인트로그설정] ---
+    if (commandName === '포인트로그설정') {
+      const targetChannel = options.getChannel('채널');
+      const logConfig = loadData(LOG_CONFIG_FILE);
+      logConfig[guildId] = targetChannel.id;
+      saveData(LOG_CONFIG_FILE, logConfig);
+      return await interaction.editReply({ content: `✅ 포인트 로그 채널이 <#${targetChannel.id}> (으)로 설정되었습니다!` });
+    }
+
+    // --- 🚨 [/경고로그설정] (무한 로딩 완벽 해결) ---
+    if (commandName === '경고로그설정') {
+      const targetChannel = options.getChannel('채널');
+      const warningLogConfig = loadData(WARNING_LOG_CONFIG_FILE);
+      warningLogConfig[guildId] = targetChannel.id;
+      saveData(WARNING_LOG_CONFIG_FILE, warningLogConfig);
+      return await interaction.editReply({ content: `✅ 경고 로그 채널이 <#${targetChannel.id}> (으)로 설정되었습니다!` });
     }
 
     // --- [/프로필] ---
@@ -542,19 +556,26 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ content: `<@${targetUser.id}> 님의 현재 경고 횟수는 **${userWarns} / 3 회** 입니다.` });
     }
 
-    // --- [/상점] ---
+    // --- 🛒 [/상점] (두 번째 사진의 깔끔한 디자인 적용) ---
     if (commandName === '상점') {
-      const itemsObj = shopData[guildId].items || {};
-      const items = Object.values(itemsObj);
-      let itemListText = `**1. 🎟️ 경고 차감권** - \`3,000 P\`\n**2. 🏷️ 커스텀역할** - \`30,000 P\`\n**3. 📚 강의권** - \`5,000 P\`\n\n`;
-      let idx = 4;
-      items.forEach(item => {
-        itemListText += `**${idx}. <@&${item.roleId}>** - \`${item.price.toLocaleString()} P\`\n`;
-        idx++;
-      });
-
       const userPoints = pointsData[guildId][user.id] || 0;
-      const embed = new EmbedBuilder().setColor('#FEE75C').setTitle('🛒 포인트 상점').setDescription(itemListText).addFields({ name: '내 포인트', value: `${userPoints.toLocaleString()} P` });
+      const embed = new EmbedBuilder()
+        .setColor('#FEE75C')
+        .setTitle('🛒 포인트 상점')
+        .setDescription(
+          '**1. 🎟️ 경고 차감권**\n' +
+          '- `3,000 P` (내 구매 횟수: 0회)\n' +
+          'ㄴ구매 즉시 누적된 경고 1회가 자동으로 차감됩니다. (재구매 시마다 2,000 P씩 증가)\n\n' +
+          '**2. 🏷️ 커스텀역할**\n' +
+          '- `30,000 P`\n' +
+          'ㄴ본인이 원하는 커스텀 역할을 신청할 수 있습니다.\n\n' +
+          '**3. 📚 강의권**\n' +
+          '- `5,000 P`\n' +
+          'ㄴ강의를 받을 수 있는 수강권을 획득합니다.'
+        )
+        .addFields({ name: '💳 내 보유 포인트', value: `**${userPoints.toLocaleString()} P**` })
+        .setFooter({ text: '구매를 원하시면 /상점구매 명령어를 사용해주세요! (예: /상점구매 상품이름: 커스텀 역할)' });
+
       return await interaction.editReply({ embeds: [embed] });
     }
 
@@ -569,13 +590,34 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ content: `<@${targetUser.id}> 님에게 **${amount.toLocaleString()} P**를 지급/차감했습니다. (현재: ${newPoints} P)` });
     }
 
+    // --- ⚠️ [/경고] (첫 번째 사진과 동일한 노란색 임베드 디자인 적용) ---
     if (commandName === '경고') {
       const targetUser = options.getUser('대상');
       const reason = options.getString('사유') || '사유 미기재';
       const currentWarns = (warningsData[guildId][targetUser.id] || 0) + 1;
       warningsData[guildId][targetUser.id] = currentWarns;
       saveData(WARNINGS_FILE, warningsData);
-      return await interaction.editReply({ content: `<@${targetUser.id}> 님에게 경고 1회를 부여했습니다. (현재 ${currentWarns}회 / 사유: ${reason})` });
+
+      // 경고 로그 채널로 전송
+      await sendWarningLog(
+        guild, 
+        '경고 부여', 
+        `<@${targetUser.id}> 님에게 경고 1회를 부여했습니다.`, 
+        '#FEE75C'
+      );
+
+      // 명령어 입력한 곳에 보여줄 임베드 (첫 번째 사진 디자인)
+      const embed = new EmbedBuilder()
+        .setColor('#FEE75C')
+        .setTitle('⚠️ 경고 부여')
+        .setDescription(`<@${targetUser.id}> 님에게 경고 1회를 부여했습니다.`)
+        .addFields(
+          { name: '현재 경고 횟수', value: `${currentWarns} / 3 회`, inline: true },
+          { name: '사유', value: reason, inline: true }
+        )
+        .setTimestamp();
+
+      return await interaction.editReply({ embeds: [embed] });
     }
 
     if (commandName === '경고차감') {
