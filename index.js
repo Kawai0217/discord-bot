@@ -32,11 +32,12 @@ const client = new Client({
 // 📌 [설정] 내전 역할 이름
 const CIVIL_WAR_ROLE_NAME = '내전'; 
 
-// --- 데이터 파일 관리 (포인트, 경고, 내전정지, 상점) ---
+// --- 데이터 파일 관리 (포인트, 경고, 내전정지, 상점, 포럼별 참가자) ---
 const POINTS_FILE = path.join(__dirname, 'points.json');
 const WARNINGS_FILE = path.join(__dirname, 'warnings.json');
 const BANS_FILE = path.join(__dirname, 'bans.json');
 const SHOP_FILE = path.join(__dirname, 'shop.json');
+const PARTICIPANTS_FILE = path.join(__dirname, 'participants.json');
 
 function loadData(filePath) {
   if (!fs.existsSync(filePath)) {
@@ -52,9 +53,6 @@ function loadData(filePath) {
 function saveData(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
-
-// 내전 참가자 목록 (유저 ID 저장)
-let participants = [];
 
 // 디스코드 역할 이름 매칭 패턴 정의
 const tierInfo = [
@@ -108,12 +106,12 @@ const commands = [
   // --- 관리자 전용 명령어 ---
   new SlashCommandBuilder()
     .setName('내전인원')
-    .setDescription('현재 내전 참가자 명단을 티어/역할순으로 확인합니다. (관리자 전용)')
+    .setDescription('현재 포럼의 내전 참가자 명단을 티어/역할순으로 확인합니다. (관리자 전용)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
     .setName('명단초기화')
-    .setDescription('참가자 명단을 초기화합니다. (관리자 전용)')
+    .setDescription('현재 포럼의 참가자 명단을 초기화합니다. (관리자 전용)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
@@ -257,7 +255,7 @@ async function notifyOwner(guild, buyer, itemName, price, extraInfo = '') {
   }
 }
 
-// 채팅 감지 이벤트 ('ㅅ', '손', 't')
+// 채팅 감지 이벤트 ('ㅅ', '손', 't') - 포럼(스레드/채널)별 구분 적용
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
@@ -265,13 +263,26 @@ client.on('messageCreate', async (message) => {
   
   if (text === 'ㅅ' || text === '손' || text === 't') {
     const userId = message.author.id;
+    const guildId = message.guild?.id;
+    if (!guildId) return;
 
-    if (participants.includes(userId)) {
+    // 포럼 채널 혹은 스레드인 경우 부모 ID 또는 현재 채널 ID를 기준(포럼 식별자)으로 사용
+    let forumId = message.channel.id;
+    if (message.channel.isThread()) {
+      forumId = message.channel.parentId || message.channel.id;
+    }
+
+    const participantsData = loadData(PARTICIPANTS_FILE);
+    if (!participantsData[guildId]) participantsData[guildId] = {};
+    if (!participantsData[guildId][forumId]) participantsData[guildId][forumId] = [];
+
+    if (participantsData[guildId][forumId].includes(userId)) {
       await message.react('⚠️');
       return;
     }
 
-    participants.push(userId);
+    participantsData[guildId][forumId].push(userId);
+    saveData(PARTICIPANTS_FILE, participantsData);
     await message.react('✅');
   }
 });
@@ -280,8 +291,14 @@ client.on('messageCreate', async (message) => {
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  const { commandName, guildId, options, user, guild } = interaction;
+  const { commandName, guildId, options, user, guild, channel } = interaction;
   
+  // 현재 명령어가 입력된 포럼/채널 ID 파악
+  let forumId = channel.id;
+  if (channel.isThread()) {
+    forumId = channel.parentId || channel.id;
+  }
+
   const pointsData = loadData(POINTS_FILE);
   if (!pointsData[guildId]) pointsData[guildId] = {};
 
@@ -295,17 +312,22 @@ client.on('interactionCreate', async interaction => {
   if (!shopData[guildId]) shopData[guildId] = { items: {}, userTicketCounts: {} };
   if (!shopData[guildId].userTicketCounts) shopData[guildId].userTicketCounts = {};
 
+  const participantsData = loadData(PARTICIPANTS_FILE);
+  if (!participantsData[guildId]) participantsData[guildId] = {};
+  if (!participantsData[guildId][forumId]) participantsData[guildId][forumId] = [];
+
   // [/내전인원]
   if (commandName === '내전인원') {
     await interaction.deferReply();
-    const embed = await buildEmbed(guild);
+    const embed = await buildEmbed(guild, participantsData[guildId][forumId]);
     await interaction.editReply({ embeds: [embed] });
   }
 
   // [/명단초기화]
   if (commandName === '명단초기화') {
-    participants = [];
-    await interaction.reply('🔄 내전 참가자 명단이 초기화되었습니다!');
+    participantsData[guildId][forumId] = [];
+    saveData(PARTICIPANTS_FILE, participantsData);
+    await interaction.reply('🔄 현재 포럼의 내전 참가자 명단이 초기화되었습니다!');
   }
 
   // [/포인트지급]
@@ -789,16 +811,16 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// 명단 생성 및 티어 감지 + fow.lol 링크 자동 추출 함수
-async function buildEmbed(guild) {
+// 명단 생성 및 티어 감지 + fow.lol 링크 자동 추출 함수 (포럼별 참가자 리스트 전달)
+async function buildEmbed(guild, currentParticipants) {
   let description = '';
 
-  if (participants.length === 0) {
+  if (!currentParticipants || currentParticipants.length === 0) {
     description = '아직 참가자가 없습니다. 채팅창에 **`ㅅ`** 또는 **`손`**을 입력해 주세요!';
   } else {
     const list = [];
 
-    for (const userId of participants) {
+    for (const userId of currentParticipants) {
       try {
         const member = await guild.members.fetch(userId);
         const userRoleNames = member.roles.cache.map(r => r.name.toLowerCase());
@@ -873,7 +895,7 @@ async function buildEmbed(guild) {
     .setColor('#5865F2')
     .setTitle('🎮 내전 참가자 명단 (서버 역할 기준 / 티어순)')
     .setDescription(description)
-    .setFooter({ text: `총 신청 인원: ${participants.length}명` })
+    .setFooter({ text: `총 신청 인원: ${currentParticipants ? currentParticipants.length : 0}명` })
     .setTimestamp();
 }
 
