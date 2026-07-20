@@ -10,10 +10,8 @@ const {
   REST, 
   Routes, 
   PermissionFlagsBits,
-  ChannelType,
-  AttachmentBuilder
+  ChannelType
 } = require('discord.js');
-const { createCanvas, loadImage } = require('canvas');
 
 // Render 수면 방지용 HTTP 서버
 http.createServer((req, res) => {
@@ -110,17 +108,17 @@ async function sendWarningLog(guild, title, description, color = '#ED4245') {
 
 // 디스코드 역할 이름 매칭 패턴 정의
 const tierInfo = [
-  { keywords: ['챌린저', '챌'], code: 'C', name: 'Challenger', priority: 1, color: '#F4C430' },
-  { keywords: ['그랜드마스터', '그마'], code: 'GM', name: 'Grandmaster', priority: 2, color: '#CD7F32' },
-  { keywords: ['마스터', '마'], code: 'M', name: 'Master', priority: 3, color: '#9932CC' },
-  { keywords: ['다이아몬드', '다이아', '다'], code: 'D', name: 'Diamond', priority: 4, color: '#00BFFF' },
-  { keywords: ['에메랄드', '에메', '에'], code: 'E', name: 'Emerald', priority: 5, color: '#2E8B57' },
-  { keywords: ['플래티넘', '플레티넘', '플래', '플레', '플'], code: 'P', name: 'Platinum', priority: 6, color: '#20B2AA' },
-  { keywords: ['골드', '골'], code: 'G', name: 'Gold', priority: 7, color: '#FFD700' },
-  { keywords: ['실버', '실'], code: 'S', name: 'Silver', priority: 8, color: '#C0C0C0' },
-  { keywords: ['브론즈', '브'], code: 'B', name: 'Bronze', priority: 9, color: '#CD853F' },
-  { keywords: ['아이언', '아'], code: 'I', name: 'Iron', priority: 10, color: '#708090' },
-  { keywords: ['언랭'], code: 'U', name: 'Unranked', priority: 11, color: '#808080' }
+  { keywords: ['챌린저', '챌'], code: 'C', name: '챌린저', priority: 1, color: '#F4C430' },
+  { keywords: ['그랜드마스터', '그마'], code: 'GM', name: '그랜드마스터', priority: 2, color: '#CD7F32' },
+  { keywords: ['마스터', '마'], code: 'M', name: '마스터', priority: 3, color: '#9932CC' },
+  { keywords: ['다이아몬드', '다이아', '다'], code: 'D', name: '다이아몬드', priority: 4, color: '#00BFFF' },
+  { keywords: ['에메랄드', '에메', '에'], code: 'E', name: '에메랄드', priority: 5, color: '#2E8B57' },
+  { keywords: ['플래티넘', '플레티넘', '플래', '플레', '플'], code: 'P', name: '플래티넘', priority: 6, color: '#20B2AA' },
+  { keywords: ['골드', '골'], code: 'G', name: '골드', priority: 7, color: '#FFD700' },
+  { keywords: ['실버', '실'], code: 'S', name: '실버', priority: 8, color: '#C0C0C0' },
+  { keywords: ['브론즈', '브'], code: 'B', name: '브론즈', priority: 9, color: '#CD853F' },
+  { keywords: ['아이언', '아'], code: 'I', name: '아이언', priority: 10, color: '#708090' },
+  { keywords: ['언랭'], code: 'U', name: '언랭크', priority: 11, color: '#808080' }
 ];
 
 const lineKeywords = ['탑', '정글', '미드', '원딜', '서폿'];
@@ -131,7 +129,7 @@ async function getUserProfileInfo(guild, user) {
     const member = await guild.members.fetch(user.id);
     const userRoleNames = member.roles.cache.map(r => r.name.toLowerCase());
 
-    let matchedTier = { code: 'U', name: 'Unranked', priority: 11, color: '#808080' };
+    let matchedTier = { code: 'U', name: '언랭크', priority: 11, color: '#808080' };
     for (const t of tierInfo) {
       const isMatch = userRoleNames.some(roleName => 
         t.keywords.some(kw => roleName.includes(kw.toLowerCase()))
@@ -154,102 +152,21 @@ async function getUserProfileInfo(guild, user) {
     const lineText = userLines.length > 0 ? userLines.join(', ') : '포지션 없음';
     const displayName = member.nickname || user.globalName || user.username;
 
-    return { displayName, matchedTier, lineText, member };
+    return { displayName, matchedTier, lineText };
   } catch (err) {
     return { 
       displayName: user.username, 
-      matchedTier: { code: 'U', name: 'Unranked', color: '#808080' }, 
-      lineText: '정보 없음', 
-      member: null 
+      matchedTier: { code: 'U', name: '언랭크', color: '#808080' }, 
+      lineText: '정보 없음' 
     };
   }
-}
-
-// 🎨 프로필 명함 이미지 생성 함수 (Canvas)
-async function generateProfileCard(user, displayName, matchedTier, lineText, points, warns) {
-  const canvas = createCanvas(700, 300);
-  const ctx = canvas.getContext('2d');
-
-  // 1. 배경 그리기 (다크 그라데이션)
-  const bgGradient = ctx.createLinearGradient(0, 0, 700, 300);
-  bgGradient.addColorStop(0, '#111318');
-  bgGradient.addColorStop(1, '#1e2129');
-  ctx.fillStyle = bgGradient;
-  ctx.fillRect(0, 0, 700, 300);
-
-  // 2. 테두리 및 포인트 데코레이션 박스
-  ctx.strokeStyle = matchedTier.color;
-  ctx.lineWidth = 4;
-  ctx.strokeRect(15, 15, 670, 270);
-
-  // 3. 프로필 아바타 그리기
-  try {
-    const avatarURL = user.displayAvatarURL({ extension: 'png', size: 128 });
-    const avatar = await loadImage(avatarURL);
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(85, 115, 55, 0, Math.PI * 2, true);
-    ctx.closePath();
-    ctx.clip();
-    ctx.drawImage(avatar, 30, 60, 110, 110);
-    ctx.restore();
-
-    // 아바타 테두리
-    ctx.strokeStyle = matchedTier.color;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(85, 115, 56, 0, Math.PI * 2, true);
-    ctx.stroke();
-  } catch (e) {
-    // 아바타 로드 실패 시 대체 원
-    ctx.fillStyle = '#444';
-    ctx.beginPath();
-    ctx.arc(85, 115, 55, 0, Math.PI * 2, true);
-    ctx.fill();
-  }
-
-  // 4. 유저 닉네임 (디스플레이 이름)
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 26px sans-serif';
-  ctx.fillText(displayName, 165, 80);
-
-  // 태그 또는 유저네임
-  ctx.fillStyle = '#949ba4';
-  ctx.font = '16px sans-serif';
-  ctx.fillText(`@${user.username}`, 165, 105);
-
-  // 5. 구분선
-  ctx.strokeStyle = '#2b2d31';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(35, 185);
-  ctx.lineTo(665, 185);
-  ctx.stroke();
-
-  // 6. 하단 정보 (티어, 포지션, 포인트, 경고)
-  const drawInfoBox = (x, y, label, value, valueColor = '#ffffff') => {
-    ctx.fillStyle = '#949ba4';
-    ctx.font = '12px sans-serif';
-    ctx.fillText(label.toUpperCase(), x, y);
-
-    ctx.fillStyle = valueColor;
-    ctx.font = 'bold 20px sans-serif';
-    ctx.fillText(value, x, y + 26);
-  };
-
-  drawInfoBox(35, 220, '티어', `${matchedTier.name} [${matchedTier.code}]`, matchedTier.color);
-  drawInfoBox(230, 220, '주요 라인', lineText, '#5865F2');
-  drawInfoBox(425, 220, '보유 포인트', `${points.toLocaleString()} P`, '#57F287');
-  drawInfoBox(580, 220, '경고 횟수', `${warns} / 3회`, warns > 0 ? '#ED4245' : '#ffffff');
-
-  return canvas.toBuffer();
 }
 
 // 슬래시 명령어 정의
 const commands = [
   new SlashCommandBuilder()
     .setName('프로필')
-    .setDescription('자신 또는 다른 유저의 멋진 내전 프로필 명함 카드를 확인합니다.')
+    .setDescription('자신 또는 다른 유저의 내전 프로필 정보를 확인합니다.')
     .addUserOption(option => 
       option.setName('대상').setDescription('조회할 유저 (비워두면 본인 프로필 조회)').setRequired(false)),
 
@@ -557,21 +474,29 @@ client.on('interactionCreate', async interaction => {
 
   // --- [/프로필] ---
   if (commandName === '프로필') {
-    await interaction.deferReply();
     const targetUser = options.getUser('대상') || user;
-    
     const { displayName, matchedTier, lineText } = await getUserProfileInfo(guild, targetUser);
     const userPoints = pointsData[guildId][targetUser.id] || 0;
     const userWarns = warningsData[guildId][targetUser.id] || 0;
 
-    try {
-      const cardBuffer = await generateProfileCard(targetUser, displayName, matchedTier, lineText, userPoints, userWarns);
-      const attachment = new AttachmentBuilder(cardBuffer, { name: 'profile-card.png' });
-      return interaction.editReply({ files: [attachment] });
-    } catch (err) {
-      console.error('프로필 이미지 생성 오류:', err);
-      return interaction.editReply({ content: '⚠️ 프로필 명함 카드를 생성하는 도중 오류가 발생했습니다.' });
-    }
+    const embed = new EmbedBuilder()
+      .setColor(matchedTier.color)
+      .setAuthor({ name: `${displayName} 님의 내전 프로필`, iconURL: targetUser.displayAvatarURL() })
+      .setThumbnail(targetUser.displayAvatarURL({ size: 256 }))
+      .addFields(
+        { name: '🎖️ 티어', value: `**${matchedTier.name} [${matchedTier.code}]**`, inline: true },
+        { name: '⚔️ 주요 라인', value: `**${lineText}**`, inline: true },
+        { name: '\u200b', value: '\u200b', inline: true },
+        { name: '💳 보유 포인트', value: `**${userPoints.toLocaleString()} P**`, inline: true },
+        { name: '⚠️ 경고 횟수', value: `**${userWarns} / 3회**`, inline: true },
+        { name: '\u200b', value: '\u200b', inline: true }
+      )
+      // 🎮 리그 오브 레전드 공식 월페이퍼(소환사의 협곡 배경)를 하단 배너 이미지로 추가
+      .setImage('https://images.contentstack.io/v3/assets/blt731acdce42bb0d6f/blt13e77f0c13fa094d/6308cf2436f563503dc6619a/091322_LoL_MF_Update_Banner.jpg')
+      .setTimestamp()
+      .setFooter({ text: '리그 오브 레전드 내전 시스템' });
+
+    return interaction.reply({ embeds: [embed] });
   }
 
   // --- [/포인트로그설정] ---
