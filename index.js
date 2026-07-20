@@ -9,7 +9,8 @@ const {
   SlashCommandBuilder, 
   REST, 
   Routes, 
-  PermissionFlagsBits 
+  PermissionFlagsBits,
+  ChannelType
 } = require('discord.js');
 
 // Render 수면 방지용 HTTP 서버
@@ -26,19 +27,21 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildVoiceStates // 음성 채널 감지용 인텐트
+    GatewayIntentBits.GuildVoiceStates
   ]
 });
 
 // 📌 [설정] 내전 역할 이름
 const CIVIL_WAR_ROLE_NAME = '내전'; 
 
-// --- 데이터 파일 관리 (포인트, 경고, 내전정지, 상점, 출석체크, 게시글별 참가자) ---
+// --- 데이터 파일 관리 ---
 const POINTS_FILE = path.join(__dirname, 'points.json');
 const WARNINGS_FILE = path.join(__dirname, 'warnings.json');
 const BANS_FILE = path.join(__dirname, 'bans.json');
 const SHOP_FILE = path.join(__dirname, 'shop.json');
 const ATTENDANCE_FILE = path.join(__dirname, 'attendance.json');
+const LOG_CONFIG_FILE = path.join(__dirname, 'logConfig.json');
+const WARNING_LOG_CONFIG_FILE = path.join(__dirname, 'warningLogConfig.json');
 const PARTICIPANTS_FILE = path.join(__dirname, 'participants.json');
 
 function loadData(filePath) {
@@ -56,8 +59,52 @@ function saveData(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
-// 음성방 체류 시간 누적 관리용 메모리 객체 (guildId -> { userId: minutes })
+// 음성방 체류 시간 누적 관리용 메모리 객체
 const voiceTimeTracker = {};
+
+// 포인트 로그 전송 함수 (출석/상점 제외, 관리자 포인트 지급/차감 및 음성 보상용)
+async function sendPointLog(guild, title, description, color = '#5865F2') {
+  try {
+    const logConfig = loadData(LOG_CONFIG_FILE);
+    const channelId = logConfig[guild.id];
+    if (!channelId) return;
+
+    const channel = await guild.channels.fetch(channelId).catch(() => null);
+    if (!channel) return;
+
+    const embed = new EmbedBuilder()
+      .setColor(color)
+      .setTitle(`📊 ${title}`)
+      .setDescription(description)
+      .setTimestamp();
+
+    await channel.send({ embeds: [embed] });
+  } catch (err) {
+    console.error('포인트 로그 전송 실패:', err);
+  }
+}
+
+// 경고 로그 전송 함수
+async function sendWarningLog(guild, title, description, color = '#ED4245') {
+  try {
+    const logConfig = loadData(WARNING_LOG_CONFIG_FILE);
+    const channelId = logConfig[guild.id];
+    if (!channelId) return;
+
+    const channel = await guild.channels.fetch(channelId).catch(() => null);
+    if (!channel) return;
+
+    const embed = new EmbedBuilder()
+      .setColor(color)
+      .setTitle(`🚨 ${title}`)
+      .setDescription(description)
+      .setTimestamp();
+
+    await channel.send({ embeds: [embed] });
+  } catch (err) {
+    console.error('경고 로그 전송 실패:', err);
+  }
+}
 
 // 디스코드 역할 이름 매칭 패턴 정의
 const tierInfo = [
@@ -113,6 +160,26 @@ const commands = [
         .setRequired(true)),
 
   // --- 관리자 전용 명령어 ---
+  new SlashCommandBuilder()
+    .setName('포인트로그설정')
+    .setDescription('관리자 포인트 지급/차감 및 음성 보상 로그가 출력될 채널을 설정합니다. (관리자 전용)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addChannelOption(option =>
+      option.setName('채널')
+        .setDescription('포인트 로그를 출력할 텍스트 채널을 선택하세요.')
+        .addChannelTypes(ChannelType.GuildText)
+        .setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('경고로그설정')
+    .setDescription('경고 지급 및 차감 로그가 출력될 채널을 설정합니다. (관리자 전용)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addChannelOption(option =>
+      option.setName('채널')
+        .setDescription('경고 로그를 출력할 텍스트 채널을 선택하세요.')
+        .addChannelTypes(ChannelType.GuildText)
+        .setRequired(true)),
+
   new SlashCommandBuilder()
     .setName('내전인원')
     .setDescription('현재 게시글의 내전 참가자 명단을 티어/역할순으로 확인합니다. (관리자 전용)')
@@ -199,41 +266,45 @@ client.once('ready', async () => {
   }
 
   setInterval(checkExpiredBans, 60 * 1000);
-  setInterval(checkVoiceChannels, 60 * 1000); // 1분마다 음성 채널 체류 시간 체크
+  setInterval(checkVoiceChannels, 60 * 1000);
 });
 
-// 음성 채널 체류 시간 및 포인트 지급 백그라운드 함수 (마이크/헤드셋 상태 관계없이 입장 중이면 누적)
+// 음성 채널 체류 시간 및 포인트 지급 백그라운드 함수
 async function checkVoiceChannels() {
   const pointsData = loadData(POINTS_FILE);
 
-  client.guilds.cache.forEach(guild => {
+  client.guilds.cache.forEach(async guild => {
     const guildId = guild.id;
     if (!pointsData[guildId]) pointsData[guildId] = {};
     if (!voiceTimeTracker[guildId]) voiceTimeTracker[guildId] = {};
 
     guild.channels.cache.forEach(channel => {
-      // 음성 채널이고 멤버가 있는 경우
       if (channel.isVoiceBased() && channel.members.size > 0) {
-        channel.members.forEach(member => {
-          // 봇은 제외
+        channel.members.forEach(async member => {
           if (member.user.bot) return;
 
           const userId = member.id;
-
           if (!voiceTimeTracker[guildId][userId]) {
             voiceTimeTracker[guildId][userId] = 0;
           }
 
-          // 1분 누적 (음소거/헤드셋 꺼짐 여부와 상관없이 채널에만 있으면 증가)
           voiceTimeTracker[guildId][userId] += 1;
 
-          // 60분이 되면 10포인트 지급 후 타이머 리셋
           if (voiceTimeTracker[guildId][userId] >= 60) {
             voiceTimeTracker[guildId][userId] = 0;
 
             const currentPoints = pointsData[guildId][userId] || 0;
-            pointsData[guildId][userId] = currentPoints + 10;
+            const newPoints = currentPoints + 10;
+            pointsData[guildId][userId] = newPoints;
             saveData(POINTS_FILE, pointsData);
+
+            // 음성방 1시간 보상 로그 전송
+            await sendPointLog(
+              guild, 
+              '음성 채널 보상 지급', 
+              `<@${userId}> 님이 음성 채널 체류 1시간을 달성하여 **+10 P**를 획득했습니다. (보유 포인트: ${newPoints.toLocaleString()} P)`, 
+              '#57F287'
+            );
           }
         });
       }
@@ -304,7 +375,7 @@ async function notifyOwner(guild, buyer, itemName, price, extraInfo = '') {
   }
 }
 
-// 채팅 감지 이벤트 ('ㅅ', '손', 't') - 게시글(스레드) 고유 ID 사용
+// 채팅 감지 이벤트 ('ㅅ', '손', 't')
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
@@ -359,6 +430,34 @@ client.on('interactionCreate', async interaction => {
   const participantsData = loadData(PARTICIPANTS_FILE);
   if (!participantsData[guildId]) participantsData[guildId] = {};
   if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
+
+  // --- [/포인트로그설정] ---
+  if (commandName === '포인트로그설정') {
+    const targetChannel = options.getChannel('채널');
+    const logConfig = loadData(LOG_CONFIG_FILE);
+
+    logConfig[guildId] = targetChannel.id;
+    saveData(LOG_CONFIG_FILE, logConfig);
+
+    return interaction.reply({ 
+      content: `✅ 포인트 로그 채널이 <#${targetChannel.id}> (으)로 설정되었습니다!`, 
+      ephemeral: true 
+    });
+  }
+
+  // --- [/경고로그설정] ---
+  if (commandName === '경고로그설정') {
+    const targetChannel = options.getChannel('채널');
+    const warningLogConfig = loadData(WARNING_LOG_CONFIG_FILE);
+
+    warningLogConfig[guildId] = targetChannel.id;
+    saveData(WARNING_LOG_CONFIG_FILE, warningLogConfig);
+
+    return interaction.reply({ 
+      content: `✅ 경고 로그 채널이 <#${targetChannel.id}> (으)로 설정되었습니다!`, 
+      ephemeral: true 
+    });
+  }
 
   // --- [/출석] ---
   if (commandName === '출석') {
@@ -417,6 +516,11 @@ client.on('interactionCreate', async interaction => {
 
     pointsData[guildId][targetUser.id] = newPoints;
     saveData(POINTS_FILE, pointsData);
+
+    // 관리자 포인트 지급/차감 로그 전송
+    const actionType = amount >= 0 ? '관리자 포인트 지급' : '관리자 포인트 차감';
+    const logColor = amount >= 0 ? '#57F287' : '#ED4245';
+    await sendPointLog(guild, actionType, `관리자에 의해 <@${targetUser.id}> 님에게 **${amount.toLocaleString()} P**가 ${amount >= 0 ? '지급' : '차감'}되었습니다.\n(이전: ${currentPoints.toLocaleString()} P ➔ 현재: ${newPoints.toLocaleString()} P)`, logColor);
 
     const embed = new EmbedBuilder()
       .setColor(amount >= 0 ? '#57F287' : '#ED4245')
@@ -485,12 +589,17 @@ client.on('interactionCreate', async interaction => {
     warningsData[guildId][targetUser.id] = currentWarns;
     saveData(WARNINGS_FILE, warningsData);
 
+    // 경고 부여 로그 전송
+    await sendWarningLog(guild, '경고 부여', `<@${targetUser.id}> 님에게 경고가 1회 부여되었습니다.\n(현재 경고: **${currentWarns} / 3 회**)\n사유: ${reason}`, '#FEE75C');
+
     if (currentWarns >= 3) {
       try {
         const member = await guild.members.fetch(targetUser.id);
         if (member) {
           await member.ban({ reason: `경고 3회 누적 (사유: ${reason})` });
         }
+
+        await sendWarningLog(guild, '경고 3회 누적 - 서버 차단', `<@${targetUser.id}> 님이 경고 3회를 누적하여 서버에서 자동 차단(Ban)되었습니다.`, '#ED4245');
 
         const embed = new EmbedBuilder()
           .setColor('#ED4245')
@@ -533,6 +642,9 @@ client.on('interactionCreate', async interaction => {
     const newWarns = currentWarns - 1;
     warningsData[guildId][targetUser.id] = newWarns;
     saveData(WARNINGS_FILE, warningsData);
+
+    // 경고 차감 로그 전송
+    await sendWarningLog(guild, '경고 차감', `<@${targetUser.id}> 님의 경고가 1회 차감되었습니다.\n(이전 경고: ${currentWarns}회 ➔ 현재 경고: **${newWarns}회**)`, '#57F287');
 
     const embed = new EmbedBuilder()
       .setColor('#57F287')
@@ -888,7 +1000,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// 명단 생성 및 티어 감지 + fow.lol 링크 자동 추출 함수 (게시글별 참가자 리스트 전달)
+// 명단 생성 및 티어 감지 + fow.lol 링크 자동 추출 함수
 async function buildEmbed(guild, currentParticipants) {
   let description = '';
 
