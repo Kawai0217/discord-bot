@@ -70,11 +70,9 @@ const lineKeywords = ['탑', '정글', '미드', '원딜', '서폿'];
 
 // 슬래시 명령어 정의
 const commands = [
-  // 1. 기존 내전 명령어
   new SlashCommandBuilder().setName('내전인원').setDescription('현재 내전 참가자 명단을 티어/역할순으로 확인합니다.'),
   new SlashCommandBuilder().setName('명단초기화').setDescription('참가자 명단을 초기화합니다.'),
 
-  // 2. 포인트 명령어 추가
   new SlashCommandBuilder()
     .setName('포인트지급')
     .setDescription('유저에게 포인트를 지급하거나 차감합니다.')
@@ -153,7 +151,7 @@ client.on('interactionCreate', async interaction => {
     await interaction.reply('🔄 내전 참가자 명단이 초기화되었습니다!');
   }
 
-  // [/포인트지급] (관리자 전용)
+  // [/포인트지급]
   if (commandName === '포인트지급') {
     const targetUser = options.getUser('대상');
     const amount = options.getInteger('포인트');
@@ -177,7 +175,7 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  // [/포인트] (조회)
+  // [/포인트]
   if (commandName === '포인트') {
     const targetUser = options.getUser('대상') || user;
     const userPoints = pointsData[guildId][targetUser.id] || 0;
@@ -192,7 +190,7 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  // [/포인트순위] (Top 10)
+  // [/포인트순위]
   if (commandName === '포인트순위') {
     const serverPoints = pointsData[guildId] || {};
     
@@ -223,7 +221,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// 명단 생성 및 티어 감지 함수
+// 명단 생성 및 티어 감지 + fow.lol 링크 자동 추출 함수
 async function buildEmbed(guild) {
   let description = '';
 
@@ -239,7 +237,6 @@ async function buildEmbed(guild) {
 
         // 1. 티어 감지
         let matchedTier = { code: 'U', priority: 99 };
-        
         for (const t of tierInfo) {
           const isMatch = userRoleNames.some(roleName => 
             t.keywords.some(kw => roleName.includes(kw.toLowerCase()))
@@ -264,18 +261,31 @@ async function buildEmbed(guild) {
         const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
         const displayName = member.nickname || member.user.globalName || member.user.username;
 
+        // 3. fow.lol 전적 링크 자동 추출 (예: "97 성찬씨#7392 남 E" -> "성찬씨#7392" 추출)
+        let fowLink = '';
+        const riotIdMatch = displayName.match(/([^\s]+#[^\s]+)/);
+
+        if (riotIdMatch) {
+          const fullRiotId = riotIdMatch[1]; // 예: 성찬씨#7392
+          const formattedId = fullRiotId.replace('#', '-'); // fow.lol 검색 주소 포맷 (성찬씨-7392)
+          const encodedUrl = `https://fow.lol/find/${encodeURIComponent(formattedId)}`;
+          fowLink = ` ([전적](${encodedUrl}))`;
+        }
+
         list.push({
           displayName,
           tierCode: matchedTier.code,
           priority: matchedTier.priority,
-          lineText
+          lineText,
+          fowLink
         });
       } catch (err) {
         list.push({
           displayName: `<@${userId}>`,
           tierCode: 'U',
           priority: 99,
-          lineText: '정보 오류'
+          lineText: '정보 오류',
+          fowLink: ''
         });
       }
     }
@@ -283,8 +293,9 @@ async function buildEmbed(guild) {
     // 티어 순 정렬
     list.sort((a, b) => a.priority - b.priority);
 
+    // 출력 문구 조립: [티어] 닉네임 / 포지션 ([전적](fow링크))
     list.forEach(p => {
-      description += `**[${p.tierCode}]** ${p.displayName} / ${p.lineText}\n`;
+      description += `**[${p.tierCode}]** ${p.displayName} / ${p.lineText}${p.fowLink}\n`;
     });
   }
 
