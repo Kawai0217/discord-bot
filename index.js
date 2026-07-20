@@ -261,13 +261,14 @@ async function buildEmbed(guild) {
         const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
         const displayName = member.nickname || member.user.globalName || member.user.username;
 
-        // 3. fow.lol 전적 링크 자동 추출 (예: "97 성찬씨#7392 남 E" -> "성찬씨#7392" 추출)
+        // 3. fow.lol 전적 링크 자동 추출 (수정됨: 닉네임에 띄어쓰기가 있어도 올바르게 추출)
         let fowLink = '';
-        const riotIdMatch = displayName.match(/([^\s]+#[^\s]+)/);
+        // 앞의 숫자/생년 제거 후 #태그 전까지의 띄어쓰기 포함 전체 닉네임을 추출하는 정규식
+        const riotIdMatch = displayName.match(/(?:^\d+\s+)?(.+?#[^\s]+)/);
 
         if (riotIdMatch) {
-          const fullRiotId = riotIdMatch[1]; // 예: 성찬씨#7392
-          const formattedId = fullRiotId.replace('#', '-'); // fow.lol 검색 주소 포맷 (성찬씨-7392)
+          const fullRiotId = riotIdMatch[1].trim(); // 예: "아 콩#아코미"
+          const formattedId = fullRiotId.replace('#', '-'); // fow.lol 검색 주소 포맷 (아 콩-아코미)
           const encodedUrl = `https://fow.lol/find/${encodeURIComponent(formattedId)}`;
           fowLink = ` ([전적](${encodedUrl}))`;
         }
