@@ -16,7 +16,9 @@ const {
 http.createServer((req, res) => {
   res.write("Bot is alive!");
   res.end();
-}).listen(process.env.PORT || 10000);
+}).listen(process.env.PORT || 10000, '0.0.0.0', () => {
+  console.log('HTTP Server is running on port 10000');
+});
 
 const client = new Client({
   intents: [
