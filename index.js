@@ -352,7 +352,7 @@ client.on('messageCreate', async (message) => {
 
 client.on('interactionCreate', async interaction => {
   if (interaction.isButton()) {
-    const { customId, channel, user, member, guild, message } = interaction;
+    const { customId, channel, user, member, guild } = interaction;
     
     // 개별 비공개 텍스트 채널 방식의 티켓 생성 처리
     if (customId.startsWith('ticket_') && customId !== 'ticket_close' && customId !== 'ticket_reopen' && customId !== 'ticket_delete') {
@@ -440,25 +440,26 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (customId === 'ticket_close') {
+      await interaction.deferUpdate(); // 타임아웃 방지용 즉시 응답 지연 처리
+
       const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
       const userOverwrite = channel.permissionOverwrites.cache.get(user.id);
       const isTicketOwner = userOverwrite && userOverwrite.allow.has(PermissionFlagsBits.ViewChannel);
 
       if (!isAdmin && !isTicketOwner) {
-        return interaction.reply({ content: '⚠️ 티켓 닫기는 관리자 또는 티켓을 연 본인만 할 수 있습니다!', ephemeral: true });
+        return interaction.followUp({ content: '⚠️ 티켓 닫기는 관리자 또는 티켓을 연 본인만 할 수 있습니다!', ephemeral: true });
       }
 
-      // 메시지 전송 권한 차단
+      // 메시지 전송 권한 비동기 차단 처리
       try {
-        const overwrites = channel.permissionOverwrites.cache;
-        for (const [id, overwrite] of overwrites) {
+        const overwritePromises = channel.permissionOverwrites.cache.map(async (overwrite, id) => {
           if (id !== guild.id && id !== client.user.id && !guild.members.cache.get(id)?.permissions.has(PermissionFlagsBits.Administrator)) {
-            await channel.permissionOverwrites.edit(id, { SendMessages: false });
+            return channel.permissionOverwrites.edit(id, { SendMessages: false });
           }
-        }
+        });
+        await Promise.all(overwritePromises);
       } catch (e) {}
 
-      // 버튼을 '티켓 열기'로 변경
       const reopenedButtons = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId('ticket_reopen')
@@ -470,30 +471,31 @@ client.on('interactionCreate', async interaction => {
           .setStyle(ButtonStyle.Danger)
       );
 
-      await interaction.update({ content: '🔒 티켓이 마감(잠금)되었습니다.', components: [reopenedButtons] });
+      await interaction.editReply({ content: '🔒 티켓이 마감(잠금)되었습니다.', components: [reopenedButtons] });
       return;
     }
 
     if (customId === 'ticket_reopen') {
+      await interaction.deferUpdate(); // 타임아웃 방지용 즉시 응답 지연 처리
+
       const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
       const userOverwrite = channel.permissionOverwrites.cache.get(user.id);
       const isTicketOwner = userOverwrite && userOverwrite.allow.has(PermissionFlagsBits.ViewChannel);
 
       if (!isAdmin && !isTicketOwner) {
-        return interaction.reply({ content: '⚠️ 티켓 열기는 관리자 또는 티켓을 연 본인만 할 수 있습니다!', ephemeral: true });
+        return interaction.followUp({ content: '⚠️ 티켓 열기는 관리자 또는 티켓을 연 본인만 할 수 있습니다!', ephemeral: true });
       }
 
-      // 메시지 전송 권한 복구 (티켓 참여자 및 관리자)
+      // 메시지 전송 권한 복구 비동기 처리
       try {
-        const overwrites = channel.permissionOverwrites.cache;
-        for (const [id, overwrite] of overwrites) {
+        const overwritePromises = channel.permissionOverwrites.cache.map(async (overwrite, id) => {
           if (id !== guild.id && id !== client.user.id) {
-            await channel.permissionOverwrites.edit(id, { SendMessages: true });
+            return channel.permissionOverwrites.edit(id, { SendMessages: true });
           }
-        }
+        });
+        await Promise.all(overwritePromises);
       } catch (e) {}
 
-      // 버튼을 다시 '티켓 닫기'로 변경
       const closedButtons = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId('ticket_close')
@@ -505,7 +507,7 @@ client.on('interactionCreate', async interaction => {
           .setStyle(ButtonStyle.Danger)
       );
 
-      await interaction.update({ content: '🔓 티켓이 다시 열렸습니다. 대화를 이어가실 수 있습니다.', components: [closedButtons] });
+      await interaction.editReply({ content: '🔓 티켓이 다시 열렸습니다. 대화를 이어가실 수 있습니다.', components: [closedButtons] });
       return;
     }
 
