@@ -14,8 +14,8 @@ const {
 
 // Render 수면 방지용 HTTP 서버
 http.createServer((req, res) => {
-  res.write("Bot is alive!");
-  res.end();
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('Bot is alive!');
 }).listen(process.env.PORT || 10000, '0.0.0.0', () => {
   console.log('HTTP Server is running on port 10000');
 });
