@@ -682,7 +682,7 @@ client.on('interactionCreate', async interaction => {
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 🛒 [/상점구매] (포인트 자동 차감 및 상품 처리) ---
+    // --- 🛒 [/상점구매] (포인트 자동 차감 및 서버 대표 DM 알림) ---
     if (commandName === '상점구매') {
       const rawInput = options.getString('상품이름').trim().toLowerCase();
       const userId = user.id;
@@ -731,12 +731,34 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
+      // 포인트 로그 채널 전송
       await sendPointLog(
         guild,
         '상점 상품 구매',
         `<@${userId}> 님 상품: **${selectedItem}**\n사용 포인트: **-${cost.toLocaleString()} P**\n잔여 포인트: **${pointsData[guildId][userId].toLocaleString()} P**`,
         '#57F287'
       );
+
+      // 서버 대표(소유자)에게 개인 DM 알림 전송
+      try {
+        const owner = await guild.fetchOwner();
+        if (owner) {
+          const dmEmbed = new EmbedBuilder()
+            .setColor('#FEE75C')
+            .setTitle('🛒 [상점] 새로운 상품 구매 알림')
+            .setDescription(`**[${guild.name}]** 서버에서 유저가 상점 상품을 구매했습니다.`)
+            .addFields(
+              { name: '구매자', value: `<@${userId}> (${user.tag})`, inline: true },
+              { name: '구매 상품', value: selectedItem, inline: true },
+              { name: '사용 포인트', value: `${cost.toLocaleString()} P`, inline: true },
+              { name: '잔여 포인트', value: `${pointsData[guildId][userId].toLocaleString()} P`, inline: true }
+            )
+            .setTimestamp();
+          await owner.send({ embeds: [dmEmbed] });
+        }
+      } catch (dmErr) {
+        console.error('서버 대표 DM 전송 실패:', dmErr);
+      }
 
       const embed = new EmbedBuilder()
         .setColor('#57F287')
