@@ -677,15 +677,80 @@ client.on('interactionCreate', async interaction => {
           'ㄴ강의를 받을 수 있는 수강권을 획득합니다.'
         )
         .addFields({ name: '💳 내 보유 포인트', value: `**${userPoints.toLocaleString()} P**` })
-        .setFooter({ text: '구매를 원하시면 /상점구매 명령어를 사용해주세요! (예: /상점구매 상품이름: 커스텀 역할)' });
+        .setFooter({ text: '구매를 원하시면 /상점구매 명령어를 사용해주세요! (예: /상점구매 상품이름: 커스텀역할)' });
 
       return await interaction.editReply({ embeds: [embed] });
     }
 
-    // --- 🛒 [/상점구매] (무한 로딩 버그 수정) ---
+    // --- 🛒 [/상점구매] (포인트 자동 차감 및 상품 처리) ---
     if (commandName === '상점구매') {
-      const itemName = options.getString('상품이름');
-      return await interaction.editReply({ content: `🛒 **${itemName}** 상품 구매 기능은 현재 준비 중입니다!` });
+      const rawInput = options.getString('상품이름').trim().toLowerCase();
+      const userId = user.id;
+      const userPoints = pointsData[guildId][userId] || 0;
+
+      // 상품 이름 매칭 (띄어쓰기 무시)
+      let selectedItem = null;
+      let cost = 0;
+
+      if (rawInput.includes('경고') || rawInput.includes('차감권')) {
+        selectedItem = '경고 차감권';
+        // 구매 횟수에 따른 가격 계산 (기본 3,000 P, 재구매 시마다 +2,000 P)
+        if (!shopData[guildId].userTicketCounts) shopData[guildId].userTicketCounts = {};
+        const buyCount = shopData[guildId].userTicketCounts[userId] || 0;
+        cost = 3000 + (buyCount * 2000);
+      } else if (rawInput.includes('커스텀') || rawInput.includes('역할')) {
+        selectedItem = '커스텀역할';
+        cost = 30000;
+      } else if (rawInput.includes('강의') || rawInput.includes('강의권')) {
+        selectedItem = '강의권';
+        cost = 5000;
+      } else {
+        return await interaction.editReply({ content: '⚠️ 존재하지 않는 상품입니다. `/상점` 명령어로 상품 목록을 확인해주세요.' });
+      }
+
+      if (userPoints < cost) {
+        return await interaction.editReply({ content: `⚠️ 포인트가 부족합니다! (필요: **${cost.toLocaleString()} P** / 보유: **${userPoints.toLocaleString()} P**)` });
+      }
+
+      // 포인트 차감
+      pointsData[guildId][userId] = userPoints - cost;
+      saveData(POINTS_FILE, pointsData);
+
+      let successDescription = `<@${userId}> 님이 **${selectedItem}** 상품을 **${cost.toLocaleString()} P**에 구매하셨습니다!`;
+
+      // 경고 차감권인 경우 즉시 경고 1회 차감 적용
+      if (selectedItem === '경고 차감권') {
+        if (!shopData[guildId].userTicketCounts) shopData[guildId].userTicketCounts = {};
+        shopData[guildId].userTicketCounts[userId] = (shopData[guildId].userTicketCounts[userId] || 0) + 1;
+        saveData(SHOP_FILE, shopData);
+
+        const currentWarns = warningsData[guildId][userId] || 0;
+        if (currentWarns > 0) {
+          const newWarns = currentWarns - 1;
+          warningsData[guildId][userId] = newWarns;
+          saveData(WARNINGS_FILE, warningsData);
+          successDescription += `\n\n🛡️ 구매 즉시 누적 경고 1회가 차감되었습니다. (현재 경고: ${newWarns}회)`;
+        } else {
+          successDescription += `\n\n🛡️ 차감할 경고가 없어 포인트만 차감되었습니다.`;
+        }
+      }
+
+      // 포인트 로그 전송
+      await sendPointLog(
+        guild,
+        '상점 상품 구매',
+        `<@${userId}> 님 수량/상품: **${selectedItem}**\n사용 포인트: **-${cost.toLocaleString()} P**\n잔여 포인트: **${pointsData[guildId][userId].toLocaleString()} P**`,
+        '#57F287'
+      );
+
+      const embed = new EmbedBuilder()
+        .setColor('#57F287')
+        .setTitle('🛒 상점 구매 완료')
+        .setDescription(successDescription)
+        .addFields({ name: '💳 잔여 포인트', value: `**${pointsData[guildId][userId].toLocaleString()} P**` })
+        .setTimestamp();
+
+      return await interaction.editReply({ embeds: [embed] });
     }
 
     // --- 관리자 명령어 처리 ---
