@@ -25,18 +25,20 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildVoiceStates // 음성 채널 감지용 인텐트
   ]
 });
 
 // 📌 [설정] 내전 역할 이름
 const CIVIL_WAR_ROLE_NAME = '내전'; 
 
-// --- 데이터 파일 관리 (포인트, 경고, 내전정지, 상점, 포럼/게시글별 참가자) ---
+// --- 데이터 파일 관리 (포인트, 경고, 내전정지, 상점, 출석체크, 게시글별 참가자) ---
 const POINTS_FILE = path.join(__dirname, 'points.json');
 const WARNINGS_FILE = path.join(__dirname, 'warnings.json');
 const BANS_FILE = path.join(__dirname, 'bans.json');
 const SHOP_FILE = path.join(__dirname, 'shop.json');
+const ATTENDANCE_FILE = path.join(__dirname, 'attendance.json');
 const PARTICIPANTS_FILE = path.join(__dirname, 'participants.json');
 
 function loadData(filePath) {
@@ -53,6 +55,9 @@ function loadData(filePath) {
 function saveData(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
+
+// 음성방 체류 시간 누적 관리용 메모리 객체 (guildId -> { userId: minutes })
+const voiceTimeTracker = {};
 
 // 디스코드 역할 이름 매칭 패턴 정의
 const tierInfo = [
@@ -75,6 +80,10 @@ const lineKeywords = ['탑', '정글', '미드', '원딜', '서폿'];
 // 슬래시 명령어 정의
 const commands = [
   // --- 일반 유저 가능 명령어 ---
+  new SlashCommandBuilder()
+    .setName('출석')
+    .setDescription('하루에 한 번 출석체크를 하고 50 포인트를 받습니다!'),
+
   new SlashCommandBuilder()
     .setName('포인트')
     .setDescription('포인트를 확인합니다.')
@@ -190,7 +199,47 @@ client.once('ready', async () => {
   }
 
   setInterval(checkExpiredBans, 60 * 1000);
+  setInterval(checkVoiceChannels, 60 * 1000); // 1분마다 음성 채널 체류 시간 체크
 });
+
+// 음성 채널 체류 시간 및 포인트 지급 백그라운드 함수 (마이크/헤드셋 상태 관계없이 입장 중이면 누적)
+async function checkVoiceChannels() {
+  const pointsData = loadData(POINTS_FILE);
+
+  client.guilds.cache.forEach(guild => {
+    const guildId = guild.id;
+    if (!pointsData[guildId]) pointsData[guildId] = {};
+    if (!voiceTimeTracker[guildId]) voiceTimeTracker[guildId] = {};
+
+    guild.channels.cache.forEach(channel => {
+      // 음성 채널이고 멤버가 있는 경우
+      if (channel.isVoiceBased() && channel.members.size > 0) {
+        channel.members.forEach(member => {
+          // 봇은 제외
+          if (member.user.bot) return;
+
+          const userId = member.id;
+
+          if (!voiceTimeTracker[guildId][userId]) {
+            voiceTimeTracker[guildId][userId] = 0;
+          }
+
+          // 1분 누적 (음소거/헤드셋 꺼짐 여부와 상관없이 채널에만 있으면 증가)
+          voiceTimeTracker[guildId][userId] += 1;
+
+          // 60분이 되면 10포인트 지급 후 타이머 리셋
+          if (voiceTimeTracker[guildId][userId] >= 60) {
+            voiceTimeTracker[guildId][userId] = 0;
+
+            const currentPoints = pointsData[guildId][userId] || 0;
+            pointsData[guildId][userId] = currentPoints + 10;
+            saveData(POINTS_FILE, pointsData);
+          }
+        });
+      }
+    });
+  });
+}
 
 // 내전 정지 만료 유저 자동 역할 복구 함수
 async function checkExpiredBans() {
@@ -266,7 +315,6 @@ client.on('messageCreate', async (message) => {
     const guildId = message.guild?.id;
     if (!guildId) return;
 
-    // 각 게시글(스레드)이나 채널마다 고유한 ID 사용
     const channelId = message.channel.id;
 
     const participantsData = loadData(PARTICIPANTS_FILE);
@@ -290,7 +338,6 @@ client.on('interactionCreate', async interaction => {
 
   const { commandName, guildId, options, user, guild, channel } = interaction;
   
-  // 현재 명령어가 입력된 게시글(스레드)/채널의 고유 ID
   const channelId = channel.id;
 
   const pointsData = loadData(POINTS_FILE);
@@ -306,9 +353,45 @@ client.on('interactionCreate', async interaction => {
   if (!shopData[guildId]) shopData[guildId] = { items: {}, userTicketCounts: {} };
   if (!shopData[guildId].userTicketCounts) shopData[guildId].userTicketCounts = {};
 
+  const attendanceData = loadData(ATTENDANCE_FILE);
+  if (!attendanceData[guildId]) attendanceData[guildId] = {};
+
   const participantsData = loadData(PARTICIPANTS_FILE);
   if (!participantsData[guildId]) participantsData[guildId] = {};
   if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
+
+  // --- [/출석] ---
+  if (commandName === '출석') {
+    const todayStr = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
+    
+    if (!attendanceData[guildId][user.id]) {
+      attendanceData[guildId][user.id] = '';
+    }
+
+    if (attendanceData[guildId][user.id] === todayStr) {
+      return interaction.reply({ content: '⚠️ 오늘은 이미 출석체크를 완료하셨습니다! 내일 다시 시도해주세요.', ephemeral: true });
+    }
+
+    attendanceData[guildId][user.id] = todayStr;
+    saveData(ATTENDANCE_FILE, attendanceData);
+
+    const currentPoints = pointsData[guildId][user.id] || 0;
+    const newPoints = currentPoints + 50;
+    pointsData[guildId][user.id] = newPoints;
+    saveData(POINTS_FILE, pointsData);
+
+    const embed = new EmbedBuilder()
+      .setColor('#57F287')
+      .setTitle('📅 출석체크 완료!')
+      .setDescription(`<@${user.id}> 님의 오늘의 출석이 완료되었습니다. **50 P**가 지급되었습니다!`)
+      .addFields(
+        { name: '지급 포인트', value: `+50 P`, inline: true },
+        { name: '내 보유 포인트', value: `${newPoints.toLocaleString()} P`, inline: true }
+      )
+      .setTimestamp();
+
+    return interaction.reply({ embeds: [embed] });
+  }
 
   // [/내전인원]
   if (commandName === '내전인원') {
