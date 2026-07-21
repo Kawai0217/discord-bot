@@ -641,10 +641,10 @@ client.on('interactionCreate', async interaction => {
           let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
           const tagIndex = cleanName.indexOf('#');
           if (tagIndex !== -1) {
-            const beforeTag = cleanName.substring(0, tagIndex);
-            const afterTagPart = cleanName.substring(tagIndex);
-            const tagMatch = afterTagPart.match(/#[^\s#]+/);
-            cleanName = beforeTag + (tagMatch ? tagMatch[0] : '');
+            // # 기호 뒤의 띄어쓰기를 포함한 태그 전체를 온전하게 보존하도록 수정
+            const beforeTag = cleanName.substring(0, tagIndex).trim();
+            const afterTag = cleanName.substring(tagIndex + 1).trim();
+            cleanName = `${beforeTag}#${afterTag}`;
           } else {
             cleanName = cleanName
               .replace(/\b(여|남)\b/g, '')
@@ -1248,10 +1248,10 @@ client.on('interactionCreate', async interaction => {
           let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
           const tagIndex = cleanName.indexOf('#');
           if (tagIndex !== -1) {
-            const beforeTag = cleanName.substring(0, tagIndex);
-            const afterTagPart = cleanName.substring(tagIndex);
-            const tagMatch = afterTagPart.match(/#[^\s#]+/);
-            cleanName = beforeTag + (tagMatch ? tagMatch[0] : '');
+            // # 기호 뒤의 띄어쓰기를 포함한 태그 전체를 온전하게 보존하도록 수정
+            const beforeTag = cleanName.substring(0, tagIndex).trim();
+            const afterTag = cleanName.substring(tagIndex + 1).trim();
+            cleanName = `${beforeTag}#${afterTag}`;
           } else {
             cleanName = cleanName
               .replace(/\b(여|남)\b/g, '')
