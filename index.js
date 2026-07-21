@@ -278,6 +278,55 @@ client.on('guildCreate', async (guild) => {
   }
 });
 
+// 🎙️ 음성방 생성 및 자동 삭제 기능 처리
+const createdVoiceRooms = new Set(); // 봇이 생성한 임시 방 ID 관리
+
+client.on('voiceStateUpdate', async (oldState, newState) => {
+  const member = newState.member;
+  if (!member || member.user.bot) return;
+
+  const newUserChannel = newState.channel;
+  const oldUserChannel = oldState.channel;
+
+  // 1. 유저가 '음성방생성' 채널에 들어왔을 때
+  if (newUserChannel && newUserChannel.name === '음성방생성') {
+    try {
+      const guild = newState.guild;
+      const category = newUserChannel.parent; // 생성 채널이 속한 카테고리
+
+      // 유저의 고유 방 이름 생성 (예: "홍길동 님의 방" 또는 닉네임 활용)
+      const roomName = `${member.nickname || member.user.globalName || member.user.username} 의 방`;
+
+      // 새로운 음성 채널 생성
+      const createdChannel = await guild.channels.create({
+        name: roomName,
+        type: ChannelType.GuildVoice,
+        parent: category ? category.id : null,
+      });
+
+      // 생성된 방을 관리 목록에 추가
+      createdVoiceRooms.add(createdChannel.id);
+
+      // 유저를 새로 생성된 방으로 강제 이동
+      await member.voice.setChannel(createdChannel);
+    } catch (err) {
+      console.error('음성방 생성 오류:', err);
+    }
+  }
+
+  // 2. 유저가 방을 나갔을 때 (빈 방 자동 삭제 체크)
+  if (oldUserChannel && createdVoiceRooms.has(oldUserChannel.id)) {
+    if (oldUserChannel.members.size === 0) {
+      try {
+        createdVoiceRooms.delete(oldUserChannel.id);
+        await oldUserChannel.delete();
+      } catch (err) {
+        console.error('음성방 삭제 오류:', err);
+      }
+    }
+  }
+});
+
 async function checkVoiceChannels() {
   const pointsData = loadData(POINTS_FILE);
   client.guilds.cache.forEach(async guild => {
