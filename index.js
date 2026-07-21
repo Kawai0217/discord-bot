@@ -638,17 +638,17 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = memberObj.nickname || memberObj.user.globalName || memberObj.user.username;
 
-          // 🛡️ 앞의 나이, 뒤의 성별(여/남)·티어(P, D 등)를 정밀하게 제거하고 라이엇 ID만 추출
+          // 🛡️ 나이, 성별, 티어를 제외하고 라이엇 ID 이름과 태그의 띄어쓰기를 완벽하게 유지하여 추출
           let cleanName = rawName;
-          const tagMatch = rawName.match(/(\S+.*?)\s*#\s*(\S+)/);
+          const tagMatch = rawName.match(/^\d{2}\s+(.+?)\s*#\s*([^\s#]+(?:\s+[^\s#]+)*)(?=\s+(?:여|남|[C,GM,M,D,E,P,G,S,B,I,U])\b|$)/i) || 
+                           rawName.match(/(.+?)\s*#\s*([^\s#]+(?:\s+[^\s#]+)*)/);
+
           if (tagMatch) {
             let riotName = tagMatch[1].trim();
             let riotTag = tagMatch[2].trim();
 
-            // 앞쪽 나이(숫자 2글자) 제거
             riotName = riotName.replace(/^\d{2}\s*/, '');
-            // 뒤쪽 성별 및 티어 단어 제거
-            riotTag = riotTag.replace(/\s+(여|남)\s*[A-Za-z]?\s*$/, '').replace(/\b(여|남|[C,GM,M,D,E,P,G,S,B,I,U])\b/gi, '').trim();
+            riotTag = riotTag.replace(/\s+(여|남)\s*[A-Za-z]?\s*$/, '').trim();
 
             cleanName = `${riotName}-${riotTag}`;
           } else {
@@ -1251,17 +1251,17 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // 🛡️ 앞의 나이, 뒤의 성별(여/남)·티어(P, D 등)를 정밀하게 제거하고 라이엇 ID만 추출
+          // 🛡️ 나이, 성별, 티어를 제외하고 라이엇 ID 이름과 태그의 띄어쓰기를 완벽하게 유지하여 추출
           let cleanName = rawName;
-          const tagMatch = rawName.match(/(\S+.*?)\s*#\s*(\S+)/);
+          const tagMatch = rawName.match(/^\d{2}\s+(.+?)\s*#\s*([^\s#]+(?:\s+[^\s#]+)*)(?=\s+(?:여|남|[C,GM,M,D,E,P,G,S,B,I,U])\b|$)/i) || 
+                           rawName.match(/(.+?)\s*#\s*([^\s#]+(?:\s+[^\s#]+)*)/);
+
           if (tagMatch) {
             let riotName = tagMatch[1].trim();
             let riotTag = tagMatch[2].trim();
 
-            // 앞쪽 나이(숫자 2글자) 제거
             riotName = riotName.replace(/^\d{2}\s*/, '');
-            // 뒤쪽 성별 및 티어 단어 제거
-            riotTag = riotTag.replace(/\s+(여|남)\s*[A-Za-z]?\s*$/, '').replace(/\b(여|남|[C,GM,M,D,E,P,G,S,B,I,U])\b/gi, '').trim();
+            riotTag = riotTag.replace(/\s+(여|남)\s*[A-Za-z]?\s*$/, '').trim();
 
             cleanName = `${riotName}-${riotTag}`;
           } else {
