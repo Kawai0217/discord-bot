@@ -638,15 +638,16 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = memberObj.nickname || memberObj.user.globalName || memberObj.user.username;
 
-          let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
-          const tagIndex = cleanName.indexOf('#');
-          if (tagIndex !== -1) {
-            // # 기호 뒤의 띄어쓰기를 포함한 태그 전체를 온전하게 보존하도록 수정
-            const beforeTag = cleanName.substring(0, tagIndex).trim();
-            const afterTag = cleanName.substring(tagIndex + 1).trim();
-            cleanName = `${beforeTag}#${afterTag}`;
+          // 닉네임에서 라이엇 ID (이름#태그) 부분만 정확하게 추출하는 로직
+          let cleanName = rawName;
+          const tagMatch = rawName.match(/([^\s#]+\s*#\s*[^\s#]+)/);
+          if (tagMatch) {
+            // "이름#태그" 형태를 찾았을 경우 공백 정리
+            const parts = tagMatch[1].split('#');
+            cleanName = `${parts[0].trim()}#${parts[1].trim()}`;
           } else {
-            cleanName = cleanName
+            // 태그가 없을 경우 기존처럼 부가 정보 제거 시도
+            cleanName = rawName.replace(/^\d{2}\s*/, '')
               .replace(/\b(여|남)\b/g, '')
               .replace(/\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
               .trim();
@@ -1245,15 +1246,14 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
-          const tagIndex = cleanName.indexOf('#');
-          if (tagIndex !== -1) {
-            // # 기호 뒤의 띄어쓰기를 포함한 태그 전체를 온전하게 보존하도록 수정
-            const beforeTag = cleanName.substring(0, tagIndex).trim();
-            const afterTag = cleanName.substring(tagIndex + 1).trim();
-            cleanName = `${beforeTag}#${afterTag}`;
+          // 닉네임에서 라이엇 ID (이름#태그) 부분만 정확하게 추출하는 로직
+          let cleanName = rawName;
+          const tagMatch = rawName.match(/([^\s#]+\s*#\s*[^\s#]+)/);
+          if (tagMatch) {
+            const parts = tagMatch[1].split('#');
+            cleanName = `${parts[0].trim()}#${parts[1].trim()}`;
           } else {
-            cleanName = cleanName
+            cleanName = rawName.replace(/^\d{2}\s*/, '')
               .replace(/\b(여|남)\b/g, '')
               .replace(/\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
               .trim();
