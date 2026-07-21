@@ -638,14 +638,12 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = memberObj.nickname || memberObj.user.globalName || memberObj.user.username;
 
-          // 라이엇 ID 추출 및 fow.lol 전용 링크 형식(이름-태그)으로 변환
+          // 닉네임과 태그 사이의 공백(띄어쓰기)을 완벽하게 인식하여 '이름-태그'로 변환
           let cleanName = rawName;
-          const tagMatch = rawName.match(/([^\s#]+\s*#\s*[^\s#]+)/);
+          const tagMatch = rawName.match(/(.+?)\s*#\s*(.+)/);
           if (tagMatch) {
-            const parts = tagMatch[1].split('#');
-            const riotName = parts[0].trim();
-            const riotTag = parts[1].trim();
-            // FOW.lol 검색 형식: 이름-태그 (예: 규 밍-규 밍)
+            const riotName = tagMatch[1].trim();
+            const riotTag = tagMatch[2].trim();
             cleanName = `${riotName}-${riotTag}`;
           } else {
             cleanName = rawName.replace(/^\d{2}\s*/, '')
@@ -1247,13 +1245,12 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // 라이엇 ID 추출 및 fow.lol 전용 링크 형식(이름-태그)으로 변환
+          // 닉네임과 태그 사이의 공백(띄어쓰기)을 완벽하게 인식하여 '이름-태그'로 변환
           let cleanName = rawName;
-          const tagMatch = rawName.match(/([^\s#]+\s*#\s*[^\s#]+)/);
+          const tagMatch = rawName.match(/(.+?)\s*#\s*(.+)/);
           if (tagMatch) {
-            const parts = tagMatch[1].split('#');
-            const riotName = parts[0].trim();
-            const riotTag = parts[1].trim();
+            const riotName = tagMatch[1].trim();
+            const riotTag = tagMatch[2].trim();
             cleanName = `${riotName}-${riotTag}`;
           } else {
             cleanName = rawName.replace(/^\d{2}\s*/, '')
