@@ -638,12 +638,18 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = memberObj.nickname || memberObj.user.globalName || memberObj.user.username;
 
-          // 닉네임과 태그 사이의 공백(띄어쓰기)을 완벽하게 인식하여 '이름-태그'로 변환
+          // 🛡️ 앞의 나이, 뒤의 성별(여/남)·티어(P, D 등)를 정밀하게 제거하고 라이엇 ID만 추출
           let cleanName = rawName;
-          const tagMatch = rawName.match(/(.+?)\s*#\s*(.+)/);
+          const tagMatch = rawName.match(/(\S+.*?)\s*#\s*(\S+)/);
           if (tagMatch) {
-            const riotName = tagMatch[1].trim();
-            const riotTag = tagMatch[2].trim();
+            let riotName = tagMatch[1].trim();
+            let riotTag = tagMatch[2].trim();
+
+            // 앞쪽 나이(숫자 2글자) 제거
+            riotName = riotName.replace(/^\d{2}\s*/, '');
+            // 뒤쪽 성별 및 티어 단어 제거
+            riotTag = riotTag.replace(/\s+(여|남)\s*[A-Za-z]?\s*$/, '').replace(/\b(여|남|[C,GM,M,D,E,P,G,S,B,I,U])\b/gi, '').trim();
+
             cleanName = `${riotName}-${riotTag}`;
           } else {
             cleanName = rawName.replace(/^\d{2}\s*/, '')
@@ -1245,12 +1251,18 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // 닉네임과 태그 사이의 공백(띄어쓰기)을 완벽하게 인식하여 '이름-태그'로 변환
+          // 🛡️ 앞의 나이, 뒤의 성별(여/남)·티어(P, D 등)를 정밀하게 제거하고 라이엇 ID만 추출
           let cleanName = rawName;
-          const tagMatch = rawName.match(/(.+?)\s*#\s*(.+)/);
+          const tagMatch = rawName.match(/(\S+.*?)\s*#\s*(\S+)/);
           if (tagMatch) {
-            const riotName = tagMatch[1].trim();
-            const riotTag = tagMatch[2].trim();
+            let riotName = tagMatch[1].trim();
+            let riotTag = tagMatch[2].trim();
+
+            // 앞쪽 나이(숫자 2글자) 제거
+            riotName = riotName.replace(/^\d{2}\s*/, '');
+            // 뒤쪽 성별 및 티어 단어 제거
+            riotTag = riotTag.replace(/\s+(여|남)\s*[A-Za-z]?\s*$/, '').replace(/\b(여|남|[C,GM,M,D,E,P,G,S,B,I,U])\b/gi, '').trim();
+
             cleanName = `${riotName}-${riotTag}`;
           } else {
             cleanName = rawName.replace(/^\d{2}\s*/, '')
