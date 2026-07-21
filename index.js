@@ -638,15 +638,16 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = memberObj.nickname || memberObj.user.globalName || memberObj.user.username;
 
-          // 닉네임에서 라이엇 ID (이름#태그) 부분만 정확하게 추출하는 로직
+          // 라이엇 ID 추출 및 fow.lol 전용 링크 형식(이름-태그)으로 변환
           let cleanName = rawName;
           const tagMatch = rawName.match(/([^\s#]+\s*#\s*[^\s#]+)/);
           if (tagMatch) {
-            // "이름#태그" 형태를 찾았을 경우 공백 정리
             const parts = tagMatch[1].split('#');
-            cleanName = `${parts[0].trim()}#${parts[1].trim()}`;
+            const riotName = parts[0].trim();
+            const riotTag = parts[1].trim();
+            // FOW.lol 검색 형식: 이름-태그 (예: 규 밍-규 밍)
+            cleanName = `${riotName}-${riotTag}`;
           } else {
-            // 태그가 없을 경우 기존처럼 부가 정보 제거 시도
             cleanName = rawName.replace(/^\d{2}\s*/, '')
               .replace(/\b(여|남)\b/g, '')
               .replace(/\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
@@ -1246,12 +1247,14 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // 닉네임에서 라이엇 ID (이름#태그) 부분만 정확하게 추출하는 로직
+          // 라이엇 ID 추출 및 fow.lol 전용 링크 형식(이름-태그)으로 변환
           let cleanName = rawName;
           const tagMatch = rawName.match(/([^\s#]+\s*#\s*[^\s#]+)/);
           if (tagMatch) {
             const parts = tagMatch[1].split('#');
-            cleanName = `${parts[0].trim()}#${parts[1].trim()}`;
+            const riotName = parts[0].trim();
+            const riotTag = parts[1].trim();
+            cleanName = `${riotName}-${riotTag}`;
           } else {
             cleanName = rawName.replace(/^\d{2}\s*/, '')
               .replace(/\b(여|남)\b/g, '')
