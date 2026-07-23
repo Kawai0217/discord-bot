@@ -588,9 +588,8 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // ✨ 4. 티켓 삭제 버튼 (관리자 전용 권한 검증 추가)
+    // ✨ 4. 티켓 삭제 버튼 (관리자 전용 권한 검증 및 생각 중 방지 수정)
     if (customId === 'ticket_delete') {
-      // 관리자 권한(Administrator) 체크
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
         return await interaction.reply({ content: '⚠️ 티켓 삭제는 **관리자**만 가능합니다!', flags: MessageFlags.Ephemeral });
       }
