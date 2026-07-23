@@ -456,7 +456,69 @@ client.on('messageUpdate', (oldMessage, newMessage) => {
 });
 
 client.on('interactionCreate', async interaction => {
-  if (interaction.isButton()) return;
+  // 버튼 클릭(티켓 생성 등) 처리
+  if (interaction.isButton()) {
+    if (interaction.customId.startsWith('ticket_')) {
+      if (!interaction.deferred && !interaction.replied) {
+        try {
+          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        } catch (e) {}
+      }
+
+      try {
+        const guild = interaction.guild;
+        const user = interaction.user;
+        const categoryType = interaction.customId.replace('ticket_', '');
+        
+        let categoryNameKor = '기타 문의';
+        if (categoryType === 'server') categoryNameKor = '서버 문의';
+        else if (categoryType === 'report') categoryNameKor = '유저 신고 및 분쟁';
+        else if (categoryType === 'verify') categoryNameKor = '명의 인증';
+        else if (categoryType === 'event') categoryNameKor = '이벤트 문의';
+
+        const channelName = `문의-${categoryNameKor}-${user.username}`;
+        
+        const existingChannel = guild.channels.cache.find(c => c.name === channelName);
+        if (existingChannel) {
+          return await interaction.editReply({ content: `⚠️ 이미 생성된 문의 채널이 있습니다: <#${existingChannel.id}>` });
+        }
+
+        const ticketChannel = await guild.channels.create({
+          name: channelName,
+          type: ChannelType.GuildText,
+          permissionOverwrites: [
+            {
+              id: guild.id,
+              deny: [PermissionFlagsBits.ViewChannel],
+            },
+            {
+              id: user.id,
+              allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+            },
+            {
+              id: client.user.id,
+              allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+            }
+          ],
+        });
+
+        const welcomeEmbed = new EmbedBuilder()
+          .setColor('#5865F2')
+          .setTitle(`✉️ [${categoryNameKor}] 문의 채널`)
+          .setDescription(`<@${user.id}> 님, 문의해주셔서 감사합니다!\n관리자가 확인 후 곧 답변을 도와드릴 테니 내용을 남겨주세요.`);
+
+        await ticketChannel.send({ content: `<@${user.id}>`, embeds: [welcomeEmbed] });
+
+        return await interaction.editReply({ content: `✅ 비공개 문의 채널이 생성되었습니다: <#${ticketChannel.id}>` });
+      } catch (err) {
+        console.error('티켓 생성 오류:', err);
+        try {
+          await interaction.editReply({ content: '⚠️ 문의 채널을 생성하는 중 오류가 발생했습니다.' });
+        } catch (e) {}
+      }
+    }
+    return;
+  }
 
   if (!interaction.isChatInputCommand()) return;
 
@@ -475,9 +537,9 @@ client.on('interactionCreate', async interaction => {
   if (!participantsData[guildId]) participantsData[guildId] = {};
   if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
 
-  const isPrivateCommand = commandName === '백업' || commandName === '복구';
+  const isPrivateCommand = commandName === '백업' || commandName === '복구' || commandName === '문의패널';
 
-  // ✨ [핵심 수정] 타임아웃 방지를 위해 모든 명령어에 deferReply 즉시 적용
+  // ✨ 타임아웃 방지를 위해 모든 슬래시 명령어에 deferReply 즉시 적용
   if (!interaction.deferred && !interaction.replied) {
     try {
       await interaction.deferReply({ flags: isPrivateCommand ? MessageFlags.Ephemeral : undefined });
@@ -575,7 +637,8 @@ client.on('interactionCreate', async interaction => {
         new ButtonBuilder().setCustomId('ticket_etc').setLabel('기타 문의').setEmoji('💬').setStyle(ButtonStyle.Secondary)
       );
 
-      return await interaction.editReply({ content: '✅ 문의 패널이 생성되었습니다!', embeds: [embed], components: [row1, row2] });
+      await interaction.editReply({ content: '✅ 문의 패널이 성공적으로 생성되었습니다!' });
+      return await channel.send({ embeds: [embed], components: [row1, row2] });
     }
 
     if (commandName === '포인트로그설정') {
@@ -1020,17 +1083,13 @@ client.on('interactionCreate', async interaction => {
 
           // ✨ [최종 완벽 정비된 전적 검색용 닉네임 파싱 로직]
           let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
-
-          // 1. 맨 뒤에 붙은 성별(남, 여) 단어와 티어 알파벳(C, GM, M, D, E, P, G, S, B, I, U 등)이 섞여 들어오면 싹둑 잘라냅니다.
           cleanName = cleanName.replace(/\s+([남여])(\s+[a-zA-Z])?$/i, '').trim();
-          cleanName = cleanName.replace(/\s+[a-zA-Z]$/, '').trim(); // 단독 알파벳 티어 코드 방어
+          cleanName = cleanName.replace(/\s+[a-zA-Z]$/, '').trim();
           cleanName = cleanName.replace(/\s+(남|여)$/i, '').trim();
 
-          // 2. FOW 전적 검색 링크용 인코딩 생성 (오직 깨끗한 닉네임과 태그만 반영)
           const encodedName = encodeURIComponent(cleanName);
           const fowLink = `https://fow.lol/find/${encodedName}`;
 
-          // ✨ 디스코드에 표시될 닉네임 형식 (화면 표시용)
           let formattedName = rawName
             .replace(/^\d{2}\s*/, '')
             .replace(/\b(여|남)\b/gi, '')
