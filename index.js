@@ -1021,21 +1021,25 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // ✨ 전적 검색용 이름 추출 로직 (태그 뒤 성별/불필요 단어가 절대 들어가지 않도록 정밀 분리)
+          // ✨ 전적 검색용 이름 추출 로직 (성별 '남', '여'가 태그 뒤나 닉네임 어디에 붙어있든 확실하게 제거)
           let cleanName = rawName;
-          const tagMatch = rawName.match(/(.+?)\s*#\s*([^남여]+?)(?=\s+(?:남|여)\b|$)/i);
+          const tagMatch = rawName.match(/(.+?)\s*#\s*([^#]+)/);
 
           if (tagMatch) {
             let riotName = tagMatch[1].replace(/^\d{2}\s*/, '').trim();
-            // 태그 내부에 혹시 남아있을 수 있는 성별 단어('남', '여')나 공백 뒤 불필요한 단어 제거
-            let riotTag = tagMatch[2].replace(/\s+(?:남|여)\b/gi, '').trim();
+            // 태그 및 이름에 포함된 성별 단어('남', '여')를 완벽하게 제거
+            let riotTag = tagMatch[2].replace(/\b(남|여)\b/g, '').trim();
             cleanName = `${riotName}-${riotTag}`;
           } else {
-            cleanName = rawName.replace(/^\d{2}\s*/, '')
-              .replace(/\b(여|남)\b/g, '')
-              .replace(/\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
-              .trim();
+            cleanName = rawName.replace(/^\d{2}\s*/, '');
           }
+
+          // 최종적으로 cleanName에서 남/여 및 특수 공백 깔끔히 청소
+          cleanName = cleanName
+            .replace(/\b(남|여)\b/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          
           if (!cleanName) cleanName = rawName;
 
           // ✨ 디스코드에 표시될 닉네임 형식에서 숫자, 성별, 불필요한 티어 명칭 제거 및 정돈
