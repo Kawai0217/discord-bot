@@ -1022,26 +1022,33 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // ✨ [최종 완벽한 전적 검색용 이름 추출 로직]
+          // ✨ [완벽한 전적 검색용 이름 추출 로직]
           // 1. 앞에 붙은 나이/숫자(예: "96 ") 제거
           let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
 
-          // 2. 가장 마지막에 있는 '#'을 기준으로 라이엇 이름과 태그(뒤에 성별/티어 포함)를 분리
+          // 2. 가장 마지막에 있는 '#'을 찾음
           const lastHashIndex = cleanName.lastIndexOf('#');
           if (lastHashIndex !== -1) {
             let riotName = cleanName.substring(0, lastHashIndex).trim();
             let riotTagPart = cleanName.substring(lastHashIndex + 1).trim();
 
-            // 태그 뒤에 붙은 성별(남, 여) 및 티어 알파벳 단어들 철저히 제거
-            let riotTag = riotTagPart
-              .replace(/\b(남|여)\b/gi, '')
-              .replace(/\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
-              .replace(/[-_/\s]+/g, '')
-              .trim();
+            // 태그 뒤에 공백 등으로 붙어있는 성별(남, 여) 및 티어 알파벳 단어들 분리 및 제거
+            // 예: "조 심 남" -> 태그는 "조 심", 뒤에 "남"은 완벽 차단
+            const tagMatchWithGender = riotTagPart.match(/^(.+?)\s+(남|여|C|GM|M|D|E|P|G|S|B|I|U)$/i);
+            
+            let riotTag = "";
+            if (tagMatchWithGender) {
+              riotTag = tagMatchWithGender[1].trim();
+            } else {
+              riotTag = riotTagPart
+                .replace(/\s+\b(남|여)\b/gi, '')
+                .replace(/\s+\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
+                .trim();
+            }
 
             cleanName = riotTag ? `${riotName}-${riotTag}` : riotName;
           } else {
-            // 해시태그가 아예 없는 경우 뒤에 붙은 성별/티어 제거
+            // 해시태그가 없는 경우
             cleanName = cleanName
               .replace(/\s+\b(남|여)\b/gi, '')
               .replace(/\s+\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
@@ -1050,7 +1057,7 @@ client.on('interactionCreate', async interaction => {
 
           if (!cleanName) cleanName = rawName;
 
-          // ✨ 디스코드에 표시될 닉네임 형식에서 숫자, 성별, 불필요한 티어 명칭 제거 및 정돈
+          // ✨ 디스코드에 표시될 닉네임 형식 (오직 성별과 티어 단어만 깔끔히 지우고 닉네임과 태그는 온전히 보존)
           let formattedName = rawName
             .replace(/^\d{2}\s*/, '')
             .replace(/\b(여|남)\b/gi, '')
@@ -1061,7 +1068,7 @@ client.on('interactionCreate', async interaction => {
           const encodedName = encodeURIComponent(cleanName);
           const fowLink = `https://fow.lol/find/${encodedName}`;
 
-          // ✨ [GM] 미드KING#MID / 탑 미드(전적) 형식으로 출력
+          // ✨ 출력 형식
           userDetails.push({
             rank: matchedTier.rank,
             text: `[${matchedTier.code}] ${formattedName} / ${lineText}([전적](${fowLink}))`
