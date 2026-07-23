@@ -14,7 +14,8 @@ const {
   AttachmentBuilder,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  MessageFlags
 } = require('discord.js');
 const { createCanvas, loadImage, registerFont } = require('canvas');
 
@@ -478,7 +479,7 @@ client.on('interactionCreate', async interaction => {
 
   if (!interaction.deferred && !interaction.replied) {
     try {
-      await interaction.deferReply({ ephemeral: isPrivateCommand });
+      await interaction.deferReply({ flags: isPrivateCommand ? MessageFlags.Ephemeral : undefined });
     } catch (e) {}
   }
 
@@ -1021,22 +1022,32 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // ✨ [강력한 전적 검색용 이름 추출 로직]
-          // 1. 앞에 붙은 나이/숫자(예: "22 ") 제거
+          // ✨ [완벽한 전적 검색용 이름 추출 로직]
+          // 1. 앞에 붙은 나이/숫자(예: "96 ") 제거
           let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
 
-          // 2. 만약 라이엇 태그(#)가 있다면 이름과 태그를 분리하되, 태그 뒤나 닉네임에 붙은 '남', '여' 글자를 철저히 제거
+          // 2. 뒤에 붙은 성별(남, 여) 및 티어 알파벳(C, GM, M, D, E, P, G, S, B, I, U 등) 단어들을 철저히 제거
+          cleanName = cleanName
+            .replace(/\s+\b(남|여)\b/gi, '')
+            .replace(/\s+\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
+            .replace(/[-_/\s]+\b(남|여)\b/gi, '')
+            .replace(/[-_/\s]+\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
+            .trim();
+
+          // 3. 만약 라이엇 태그(#)가 포함된 경우
           const tagMatch = cleanName.match(/(.+?)\s*#\s*(.+)/);
           if (tagMatch) {
             let riotName = tagMatch[1].trim();
-            let riotTag = tagMatch[2].replace(/\b(남|여)\b/g, '').trim();
-            // 태그 내부나 끝에 붙은 성별 제거 후 하이픈(-) 연결
+            // 태그 뒤나 내부에 남아있는 성별/티어 단어 완벽 청소
+            let riotTag = tagMatch[2]
+              .replace(/\b(남|여)\b/gi, '')
+              .replace(/\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
+              .trim();
             cleanName = `${riotName}-${riotTag}`;
           }
 
-          // 3. 닉네임 전체(태그 유무 상관없이)에서 단독으로 쓰인 '남', '여' 글자를 무조건 제거하고 공백 정리
+          // 4. 공백 및 특수기호 정리
           cleanName = cleanName
-            .replace(/\b(남|여)\b/g, '')
             .replace(/\s+/g, '-')
             .replace(/-+/g, '-')
             .replace(/^-|-$/g, '')
@@ -1047,7 +1058,7 @@ client.on('interactionCreate', async interaction => {
           // ✨ 디스코드에 표시될 닉네임 형식에서 숫자, 성별, 불필요한 티어 명칭 제거 및 정돈
           let formattedName = rawName
             .replace(/^\d{2}\s*/, '')
-            .replace(/\b(여|남)\b/g, '')
+            .replace(/\b(여|남)\b/gi, '')
             .replace(/\b(c|gm|m|d|e|p|g|s|b|i|u|challenger|grandmaster|master|diamond|emerald|platinum|gold|silver|bronze|iron|unranked)\b/gi, '')
             .replace(/\s+/g, ' ')
             .trim();
