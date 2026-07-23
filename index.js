@@ -1019,17 +1019,18 @@ client.on('interactionCreate', async interaction => {
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
           // ✨ [최종 완벽 정비된 전적 검색용 닉네임 파싱 로직]
-          // 1. 앞에 붙은 나이/숫자(예: "96 ") 제거
           let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
 
-          // 2. 맨 뒤에 붙은 성별(남, 여) 단어와 그 앞의 공백 무조건 깔끔하게 제거
+          // 1. 맨 뒤에 붙은 성별(남, 여) 단어와 티어 알파벳(C, GM, M, D, E, P, G, S, B, I, U 등)이 섞여 들어오면 싹둑 잘라냅니다.
+          cleanName = cleanName.replace(/\s+([남여])(\s+[a-zA-Z])?$/i, '').trim();
+          cleanName = cleanName.replace(/\s+[a-zA-Z]$/, '').trim(); // 단독 알파벳 티어 코드 방어
           cleanName = cleanName.replace(/\s+(남|여)$/i, '').trim();
 
-          // 3. FOW 전적 검색 링크용 인코딩 생성 (라이엇 태그나 공백이 포함된 전체 닉네임을 온전히 반영)
+          // 2. FOW 전적 검색 링크용 인코딩 생성 (오직 깨끗한 닉네임과 태그만 반영)
           const encodedName = encodeURIComponent(cleanName);
           const fowLink = `https://fow.lol/find/${encodedName}`;
 
-          // ✨ 디스코드에 표시될 닉네임 형식 (오직 맨 뒤 성별만 지우고 원래 닉네임과 태그는 그대로 보존)
+          // ✨ 디스코드에 표시될 닉네임 형식 (화면 표시용)
           let formattedName = rawName
             .replace(/^\d{2}\s*/, '')
             .replace(/\b(여|남)\b/gi, '')
