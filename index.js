@@ -1022,36 +1022,31 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // ✨ [완벽한 전적 검색용 이름 추출 로직]
+          // ✨ [최종 완벽한 전적 검색용 이름 추출 로직]
           // 1. 앞에 붙은 나이/숫자(예: "96 ") 제거
           let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
 
-          // 2. 뒤에 붙은 성별(남, 여) 및 티어 알파벳(C, GM, M, D, E, P, G, S, B, I, U 등) 단어들을 철저히 제거
-          cleanName = cleanName
-            .replace(/\s+\b(남|여)\b/gi, '')
-            .replace(/\s+\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
-            .replace(/[-_/\s]+\b(남|여)\b/gi, '')
-            .replace(/[-_/\s]+\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
-            .trim();
+          // 2. 가장 마지막에 있는 '#'을 기준으로 라이엇 이름과 태그(뒤에 성별/티어 포함)를 분리
+          const lastHashIndex = cleanName.lastIndexOf('#');
+          if (lastHashIndex !== -1) {
+            let riotName = cleanName.substring(0, lastHashIndex).trim();
+            let riotTagPart = cleanName.substring(lastHashIndex + 1).trim();
 
-          // 3. 만약 라이엇 태그(#)가 포함된 경우
-          const tagMatch = cleanName.match(/(.+?)\s*#\s*(.+)/);
-          if (tagMatch) {
-            let riotName = tagMatch[1].trim();
-            // 태그 뒤나 내부에 남아있는 성별/티어 단어 완벽 청소
-            let riotTag = tagMatch[2]
+            // 태그 뒤에 붙은 성별(남, 여) 및 티어 알파벳 단어들 철저히 제거
+            let riotTag = riotTagPart
               .replace(/\b(남|여)\b/gi, '')
               .replace(/\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
+              .replace(/[-_/\s]+/g, '')
               .trim();
-            cleanName = `${riotName}-${riotTag}`;
-          }
 
-          // 4. 공백 및 특수기호 정리
-          cleanName = cleanName
-            .replace(/\s+/g, '-')
-            .replace(/-+/g, '-')
-            .replace(/^-|-$/g, '')
-            .trim();
+            cleanName = riotTag ? `${riotName}-${riotTag}` : riotName;
+          } else {
+            // 해시태그가 아예 없는 경우 뒤에 붙은 성별/티어 제거
+            cleanName = cleanName
+              .replace(/\s+\b(남|여)\b/gi, '')
+              .replace(/\s+\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
+              .trim();
+          }
 
           if (!cleanName) cleanName = rawName;
 
