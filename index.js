@@ -538,10 +538,9 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // ✨ 2. 티켓 닫기 버튼 (누구나 사용 가능, deferUpdate 적용)
+    // ✨ 2. 티켓 닫기 버튼 (update로 즉시 버튼 및 내용 갱신)
     if (customId === 'ticket_close') {
       try {
-        await interaction.deferUpdate();
         const channel = interaction.channel;
         const overwrites = channel.permissionOverwrites.cache;
         for (const [id] of overwrites) {
@@ -555,17 +554,16 @@ client.on('interactionCreate', async interaction => {
           new ButtonBuilder().setCustomId('ticket_delete').setLabel('티켓 삭제').setStyle(ButtonStyle.Danger)
         );
 
-        return await interaction.editReply({ content: '🔒 티켓이 닫혔습니다. 이제 이 채널에서 채팅을 입력할 수 없습니다.', components: [openRow] });
+        return await interaction.update({ content: '🔒 티켓이 닫혔습니다. 이제 이 채널에서 채팅을 입력할 수 없습니다.', components: [openRow] });
       } catch (err) {
         console.error('티켓 닫기 오류:', err);
       }
       return;
     }
 
-    // ✨ 3. 티켓 열기 버튼 (누구나 사용 가능, deferUpdate 적용)
+    // ✨ 3. 티켓 열기 버튼 (update로 즉시 버튼 및 내용 갱신)
     if (customId === 'ticket_reopen') {
       try {
-        await interaction.deferUpdate();
         const channel = interaction.channel;
         const overwrites = channel.permissionOverwrites.cache;
         for (const [id] of overwrites) {
@@ -579,22 +577,21 @@ client.on('interactionCreate', async interaction => {
           new ButtonBuilder().setCustomId('ticket_delete').setLabel('티켓 삭제').setStyle(ButtonStyle.Danger)
         );
 
-        return await interaction.editReply({ content: '🔓 티켓이 다시 열렸습니다.', components: [controlRow] });
+        return await interaction.update({ content: '🔓 티켓이 다시 열렸습니다.', components: [controlRow] });
       } catch (err) {
         console.error('티켓 열기 오류:', err);
       }
       return;
     }
 
-    // ✨ 4. 티켓 삭제 버튼 (관리자 전용 권한 검증 및 deferUpdate 적용)
+    // ✨ 4. 티켓 삭제 버튼 (관리자 전용 권한 검증)
     if (customId === 'ticket_delete') {
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
         return await interaction.reply({ content: '⚠️ 티켓 삭제는 **관리자**만 가능합니다!', flags: MessageFlags.Ephemeral });
       }
 
       try {
-        await interaction.deferUpdate();
-        await interaction.editReply({ content: '🗑️ 잠시 후 채널이 삭제됩니다...', components: [] });
+        await interaction.update({ content: '🗑️ 잠시 후 채널이 삭제됩니다...', components: [] });
         setTimeout(async () => {
           await interaction.channel.delete().catch(() => {});
         }, 2000);
