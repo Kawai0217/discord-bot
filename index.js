@@ -460,12 +460,12 @@ client.on('interactionCreate', async interaction => {
   if (interaction.isButton()) {
     const customId = interaction.customId;
 
-    // 1. 패널에서 티켓 생성 버튼을 눌렀을 때
+    // 1. 패널에서 티켓 생성 버튼을 눌렀을 때 (즉시 deferReply 처리)
     if (['ticket_server', 'ticket_report', 'ticket_verify', 'ticket_event', 'ticket_etc'].includes(customId)) {
-      if (!interaction.deferred && !interaction.replied) {
-        try {
-          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        } catch (e) {}
+      try {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      } catch (e) {
+        return;
       }
 
       try {
@@ -554,10 +554,10 @@ client.on('interactionCreate', async interaction => {
           new ButtonBuilder().setCustomId('ticket_delete').setLabel('티켓 삭제').setStyle(ButtonStyle.Danger)
         );
 
-        await interaction.update({ content: '🔒 티켓이 닫혔습니다. 이제 이 채널에서 채팅을 입력할 수 없습니다.', components: [openRow] });
+        return await interaction.update({ content: '🔒 티켓이 닫혔습니다. 이제 이 채널에서 채팅을 입력할 수 없습니다.', components: [openRow] });
       } catch (err) {
         if (!interaction.replied && !interaction.deferred) {
-          await interaction.reply({ content: '⚠️ 티켓을 닫는 중 오류가 발생했습니다.', flags: MessageFlags.Ephemeral });
+          return await interaction.reply({ content: '⚠️ 티켓을 닫는 중 오류가 발생했습니다.', flags: MessageFlags.Ephemeral });
         }
       }
       return;
@@ -579,16 +579,16 @@ client.on('interactionCreate', async interaction => {
           new ButtonBuilder().setCustomId('ticket_delete').setLabel('티켓 삭제').setStyle(ButtonStyle.Danger)
         );
 
-        await interaction.update({ content: '🔓 티켓이 다시 열렸습니다.', components: [controlRow] });
+        return await interaction.update({ content: '🔓 티켓이 다시 열렸습니다.', components: [controlRow] });
       } catch (err) {
         if (!interaction.replied && !interaction.deferred) {
-          await interaction.reply({ content: '⚠️ 티켓을 여는 중 오류가 발생했습니다.', flags: MessageFlags.Ephemeral });
+          return await interaction.reply({ content: '⚠️ 티켓을 여는 중 오류가 발생했습니다.', flags: MessageFlags.Ephemeral });
         }
       }
       return;
     }
 
-    // ✨ 4. 티켓 삭제 버튼 (관리자 전용 권한 검증 및 생각 중 방지 수정)
+    // ✨ 4. 티켓 삭제 버튼 (관리자 전용 권한 검증 및 3초 타임아웃 방지 즉시 응답)
     if (customId === 'ticket_delete') {
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
         return await interaction.reply({ content: '⚠️ 티켓 삭제는 **관리자**만 가능합니다!', flags: MessageFlags.Ephemeral });
@@ -601,7 +601,7 @@ client.on('interactionCreate', async interaction => {
         }, 2000);
       } catch (err) {
         if (!interaction.replied && !interaction.deferred) {
-          await interaction.reply({ content: '⚠️ 채널을 삭제하는 중 오류가 발생했습니다.', flags: MessageFlags.Ephemeral });
+          return await interaction.reply({ content: '⚠️ 채널을 삭제하는 중 오류가 발생했습니다.', flags: MessageFlags.Ephemeral });
         }
       }
       return;
