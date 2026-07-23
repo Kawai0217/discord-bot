@@ -1021,25 +1021,27 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // ✨ 전적 검색용 이름 추출 로직 (성별 '남', '여'가 태그 뒤나 닉네임 어디에 붙어있든 확실하게 제거)
-          let cleanName = rawName;
-          const tagMatch = rawName.match(/(.+?)\s*#\s*([^#]+)/);
+          // ✨ [강력한 전적 검색용 이름 추출 로직]
+          // 1. 앞에 붙은 나이/숫자(예: "22 ") 제거
+          let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
 
+          // 2. 만약 라이엇 태그(#)가 있다면 이름과 태그를 분리하되, 태그 뒤나 닉네임에 붙은 '남', '여' 글자를 철저히 제거
+          const tagMatch = cleanName.match(/(.+?)\s*#\s*(.+)/);
           if (tagMatch) {
-            let riotName = tagMatch[1].replace(/^\d{2}\s*/, '').trim();
-            // 태그 및 이름에 포함된 성별 단어('남', '여')를 완벽하게 제거
+            let riotName = tagMatch[1].trim();
             let riotTag = tagMatch[2].replace(/\b(남|여)\b/g, '').trim();
+            // 태그 내부나 끝에 붙은 성별 제거 후 하이픈(-) 연결
             cleanName = `${riotName}-${riotTag}`;
-          } else {
-            cleanName = rawName.replace(/^\d{2}\s*/, '');
           }
 
-          // 최종적으로 cleanName에서 남/여 및 특수 공백 깔끔히 청소
+          // 3. 닉네임 전체(태그 유무 상관없이)에서 단독으로 쓰인 '남', '여' 글자를 무조건 제거하고 공백 정리
           cleanName = cleanName
             .replace(/\b(남|여)\b/g, '')
-            .replace(/\s+/g, ' ')
+            .replace(/\s+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '')
             .trim();
-          
+
           if (!cleanName) cleanName = rawName;
 
           // ✨ 디스코드에 표시될 닉네임 형식에서 숫자, 성별, 불필요한 티어 명칭 제거 및 정돈
