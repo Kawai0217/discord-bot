@@ -1021,13 +1021,14 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // ✨ 전적 검색용 이름 추출 로직 (태그 사이에 공백이 있어도 성별/티어 전까지 정확히 분리)
+          // ✨ 전적 검색용 이름 추출 로직 (태그 뒤 성별/불필요 단어가 절대 들어가지 않도록 정밀 분리)
           let cleanName = rawName;
           const tagMatch = rawName.match(/(.+?)\s*#\s*([^남여]+?)(?=\s+(?:남|여)\b|$)/i);
 
           if (tagMatch) {
             let riotName = tagMatch[1].replace(/^\d{2}\s*/, '').trim();
-            let riotTag = tagMatch[2].trim();
+            // 태그 내부에 혹시 남아있을 수 있는 성별 단어('남', '여')나 공백 뒤 불필요한 단어 제거
+            let riotTag = tagMatch[2].replace(/\s+(?:남|여)\b/gi, '').trim();
             cleanName = `${riotName}-${riotTag}`;
           } else {
             cleanName = rawName.replace(/^\d{2}\s*/, '')
@@ -1048,7 +1049,7 @@ client.on('interactionCreate', async interaction => {
           const encodedName = encodeURIComponent(cleanName);
           const fowLink = `https://fow.lol/find/${encodedName}`;
 
-          // ✨ 요청하신 대로 [GM] 미드KING#MID / 탑 미드(전적) 형식으로 출력
+          // ✨ [GM] 미드KING#MID / 탑 미드(전적) 형식으로 출력
           userDetails.push({
             rank: matchedTier.rank,
             text: `[${matchedTier.code}] ${formattedName} / ${lineText}([전적](${fowLink}))`
@@ -1059,24 +1060,37 @@ client.on('interactionCreate', async interaction => {
       // 선착순 인원 내부에서 티어순(rank 오름차순)으로 정렬합니다.
       userDetails.sort((a, b) => a.rank - b.rank);
 
-      // 글자 수 제한(4096자)을 넘지 않도록 안전하게 처리
-      let descriptionText = '';
-      for (const u of userDetails) {
-        if ((descriptionText + u.text + '\n').length > 4000) {
-          descriptionText += '\n*(글자 수 제한으로 일부 인원이 생략되었습니다.)*';
-          break;
+      // ✨ 글자 수 제한(4096자)을 해결하기 위해 여러 개의 Embed로 쪼개서 생성 (디스코드 제한 최대 10개)
+      const embeds = [];
+      let currentDesc = '';
+      let chunkIndex = 1;
+
+      for (let i = 0; i < userDetails.length; i++) {
+        const u = userDetails[i];
+        if ((currentDesc + u.text + '\n').length > 3900) {
+          const embed = new EmbedBuilder()
+            .setColor('#5865F2')
+            .setTitle(chunkIndex === 1 ? `🎮 내전 참가자 명단 (선착순 ${limitCount}명 - 티어순 정렬)` : `🎮 내전 참가자 명단 (이어보기 ${chunkIndex})`)
+            .setDescription(currentDesc);
+          
+          embeds.push(embed);
+          currentDesc = '';
+          chunkIndex++;
         }
-        descriptionText += u.text + '\n';
+        currentDesc += u.text + '\n';
       }
 
-      const embed = new EmbedBuilder()
+      // 마지막 남은 설명 추가
+      const finalEmbed = new EmbedBuilder()
         .setColor('#5865F2')
-        .setTitle(`🎮 내전 참가자 명단 (선착순 ${limitCount}명 - 티어순 정렬)`)
-        .setDescription(descriptionText || '참가자가 없습니다.')
+        .setTitle(chunkIndex === 1 ? `🎮 내전 참가자 명단 (선착순 ${limitCount}명 - 티어순 정렬)` : `🎮 내전 참가자 명단 (이어보기 ${chunkIndex})`)
+        .setDescription(currentDesc || '참가자가 없습니다.')
         .setFooter({ text: `총 신청 인원: ${currentParticipants.length}명 중 상위 ${limitCount}명 표시` });
+      
+      embeds.push(finalEmbed);
 
       return await interaction.editReply({ 
-        embeds: [embed], 
+        embeds: embeds, 
         components: [] 
       });
     }
