@@ -477,6 +477,7 @@ client.on('interactionCreate', async interaction => {
 
   const isPrivateCommand = commandName === '백업' || commandName === '복구';
 
+  // ✨ [핵심 수정] 타임아웃 방지를 위해 모든 명령어에 deferReply 즉시 적용
   if (!interaction.deferred && !interaction.replied) {
     try {
       await interaction.deferReply({ flags: isPrivateCommand ? MessageFlags.Ephemeral : undefined });
@@ -985,18 +986,13 @@ client.on('interactionCreate', async interaction => {
       }
 
       const limitCount = options.getInteger('인원수') || 40;
-
-      // 선착순 인원수만큼만 먼저 잘라냅니다.
       const slicedParticipants = currentParticipants.slice(0, limitCount);
 
       const userDetails = [];
-      const validParticipants = [];
 
       for (const userId of slicedParticipants) {
         try {
           const member = await guild.members.fetch(userId);
-          validParticipants.push(userId);
-
           const userRoleNames = member.roles.cache.map(r => r.name.toLowerCase());
 
           let matchedTier = { code: 'U', name: 'Unranked', color: '#808080', rank: 11 };
@@ -1022,19 +1018,18 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // ✨ [최종 완벽 고정 전적 검색용 이름 추출 로직]
+          // ✨ [최종 완벽 정비된 전적 검색용 닉네임 파싱 로직]
           // 1. 앞에 붙은 나이/숫자(예: "96 ") 제거
           let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
 
-          // 2. 맨 뒤에 붙은 성별(남, 여) 단어와 그 앞의 공백 무조건 완벽 제거
+          // 2. 맨 뒤에 붙은 성별(남, 여) 단어와 그 앞의 공백 무조건 깔끔하게 제거
           cleanName = cleanName.replace(/\s+(남|여)$/i, '').trim();
 
-          // 3. 라이엇 태그(#) 처리: 라이엇 공식 URL 형식에 맞게 # 기호와 띄어쓰기(%20)를 그대로 보존
-          // 예: "이시벅#조 심" -> "이시벅#조 심" (FOW 검색 주소에 그대로 반영되도록 가공)
-          // 닉네임 안에 #이 포함되어 있으므로, 마지막 단어 파트나 해시태그 구조를 정확히 보존합니다.
-          // FOW가 인식하는 URL 포맷: /find/이시벅%23조%20심 (또는 샵을 그대로 두어도 브라우저가 자동 인코딩)
+          // 3. FOW 전적 검색 링크용 인코딩 생성 (라이엇 태그나 공백이 포함된 전체 닉네임을 온전히 반영)
+          const encodedName = encodeURIComponent(cleanName);
+          const fowLink = `https://fow.lol/find/${encodedName}`;
 
-          // 4. 디스코드에 표시될 닉네임 형식 (오직 맨 뒤 성별만 지우고 닉네임과 태그는 온전히 보존)
+          // ✨ 디스코드에 표시될 닉네임 형식 (오직 맨 뒤 성별만 지우고 원래 닉네임과 태그는 그대로 보존)
           let formattedName = rawName
             .replace(/^\d{2}\s*/, '')
             .replace(/\b(여|남)\b/gi, '')
@@ -1042,10 +1037,6 @@ client.on('interactionCreate', async interaction => {
             .replace(/\s+/g, ' ')
             .trim();
 
-          const encodedName = encodeURIComponent(cleanName);
-          const fowLink = `https://fow.lol/find/${encodedName}`;
-
-          // ✨ 출력 형식
           userDetails.push({
             rank: matchedTier.rank,
             text: `[${matchedTier.code}] ${formattedName} / ${lineText}([전적](${fowLink}))`
@@ -1053,10 +1044,8 @@ client.on('interactionCreate', async interaction => {
         } catch (e) {}
       }
 
-      // 선착순 인원 내부에서 티어순(rank 오름차순)으로 정렬합니다.
       userDetails.sort((a, b) => a.rank - b.rank);
 
-      // ✨ 글자 수 제한(4096자)을 해결하기 위해 여러 개의 Embed로 쪼개서 생성 (디스코드 제한 최대 10개)
       const embeds = [];
       let currentDesc = '';
       let chunkIndex = 1;
@@ -1076,7 +1065,6 @@ client.on('interactionCreate', async interaction => {
         currentDesc += u.text + '\n';
       }
 
-      // 마지막 남은 설명 추가
       const finalEmbed = new EmbedBuilder()
         .setColor('#5865F2')
         .setTitle(chunkIndex === 1 ? `🎮 내전 참가자 명단 (선착순 ${limitCount}명 - 티어순 정렬)` : `🎮 내전 참가자 명단 (이어보기 ${chunkIndex})`)
