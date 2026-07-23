@@ -1021,9 +1021,9 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // 정확하게 '닉네임#태그' 부분만 추출하여 전적 링크 생성용으로 활용
+          // 공백 포함 닉네임과 태그(띄어쓰기 포함 가능)를 정확히 분리하는 정규식
           let cleanName = rawName;
-          const tagMatch = rawName.match(/([^\s#]+)\s*#\s*([^\s#]+)/);
+          const tagMatch = rawName.match(/(.+?)\s*#\s*(.+)/);
 
           if (tagMatch) {
             let riotName = tagMatch[1].replace(/^\d{2}\s*/, '').trim();
@@ -1047,7 +1047,7 @@ client.on('interactionCreate', async interaction => {
           const encodedName = encodeURIComponent(cleanName);
           const fowLink = `https://fow.lol/find/${encodedName}`;
 
-          // ✨ 요청하신 대로 [티어] 닉네임 / 라인 (전적) 형식으로 변경
+          // ✨ 요청하신 대로 [GM] 미드KING#MID / 탑 미드 (전적) 형식으로 출력
           userDetails.push({
             rank: matchedTier.rank,
             text: `[${matchedTier.code}] ${formattedName} / ${lineText} ([전적](${fowLink}))`
