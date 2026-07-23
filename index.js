@@ -1021,7 +1021,7 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // 공백 포함 닉네임과 태그(띄어쓰기 포함 가능)를 정확히 분리하는 정규식
+          // ✨ 전적 검색용 이름 추출 로직 (절대 수정 안 함)
           let cleanName = rawName;
           const tagMatch = rawName.match(/(.+?)\s*#\s*(.+)/);
 
@@ -1037,20 +1037,21 @@ client.on('interactionCreate', async interaction => {
           }
           if (!cleanName) cleanName = rawName;
 
-          // 명단에 표시될 닉네임 형식 (앞 숫자, 성별 제거)
+          // ✨ 디스코드에 표시될 닉네임 형식에서 숫자, 성별, 불필요한 티어 명칭 제거 및 정돈
           let formattedName = rawName
             .replace(/^\d{2}\s*/, '')
             .replace(/\b(여|남)\b/g, '')
+            .replace(/\b(c|gm|m|d|e|p|g|s|b|i|u|challenger|grandmaster|master|diamond|emerald|platinum|gold|silver|bronze|iron|unranked)\b/gi, '')
             .replace(/\s+/g, ' ')
             .trim();
 
           const encodedName = encodeURIComponent(cleanName);
           const fowLink = `https://fow.lol/find/${encodedName}`;
 
-          // ✨ 요청하신 대로 [GM] 미드KING#MID / 탑 미드 (전적) 형식으로 출력
+          // ✨ 요청하신 대로 [GM] 미드KING#MID / 탑 미드(전적) 형식으로 출력
           userDetails.push({
             rank: matchedTier.rank,
-            text: `[${matchedTier.code}] ${formattedName} / ${lineText} ([전적](${fowLink}))`
+            text: `[${matchedTier.code}] ${formattedName} / ${lineText}([전적](${fowLink}))`
           });
         } catch (e) {}
       }
