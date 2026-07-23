@@ -1022,42 +1022,39 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // ✨ [완벽한 전적 검색용 이름 추출 로직]
+          // ✨ [최종 완벽한 전적 검색용 이름 추출 로직]
           // 1. 앞에 붙은 나이/숫자(예: "96 ") 제거
           let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
 
-          // 2. 가장 마지막에 있는 '#'을 찾음
+          // 2. 가장 마지막에 있는 '#'의 위치 확인 (라이엇 태그 존재 여부 파악)
           const lastHashIndex = cleanName.lastIndexOf('#');
+
           if (lastHashIndex !== -1) {
+            // 라이엇 태그(#)가 있는 경우
             let riotName = cleanName.substring(0, lastHashIndex).trim();
             let riotTagPart = cleanName.substring(lastHashIndex + 1).trim();
 
-            // 태그 뒤에 공백 등으로 붙어있는 성별(남, 여) 및 티어 알파벳 단어들 분리 및 제거
-            // 예: "조 심 남" -> 태그는 "조 심", 뒤에 "남"은 완벽 차단
-            const tagMatchWithGender = riotTagPart.match(/^(.+?)\s+(남|여|C|GM|M|D|E|P|G|S|B|I|U)$/i);
-            
-            let riotTag = "";
-            if (tagMatchWithGender) {
-              riotTag = tagMatchWithGender[1].trim();
-            } else {
-              riotTag = riotTagPart
-                .replace(/\s+\b(남|여)\b/gi, '')
-                .replace(/\s+\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
-                .trim();
-            }
+            const tagParts = riotTagPart.split(/\s+/);
+            let riotTag = tagParts[0]; // 진짜 라이엇 태그
 
             cleanName = riotTag ? `${riotName}-${riotTag}` : riotName;
           } else {
-            // 해시태그가 없는 경우
-            cleanName = cleanName
-              .replace(/\s+\b(남|여)\b/gi, '')
-              .replace(/\s+\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
-              .trim();
+            // 라이엇 태그(#)가 아예 없는 경우 (예: "규 밍#밍 규 여")
+            // 맨 마지막 단어가 성별(남, 여)이거나 티어 알파벳(C, GM, M, D, E, P, G, S, B, I, U)이면 떼어냄
+            const nameParts = cleanName.split(/\s+/);
+            if (nameParts.length > 1) {
+              const lastWord = nameParts[nameParts.length - 1].toLowerCase();
+              const isGenderOrTier = /^(남|여|c|gm|m|d|e|p|g|s|b|i|u)$/.test(lastWord);
+              if (isGenderOrTier) {
+                nameParts.pop(); // 맨 마지막 성별/티어 단어 제거
+              }
+            }
+            cleanName = nameParts.join('-');
           }
 
           if (!cleanName) cleanName = rawName;
 
-          // ✨ 디스코드에 표시될 닉네임 형식 (오직 성별과 티어 단어만 깔끔히 지우고 닉네임과 태그는 온전히 보존)
+          // ✨ 디스코드에 표시될 닉네임 형식 (오직 맨 뒤 성별/티어만 지우고 닉네임과 태그는 온전히 보존)
           let formattedName = rawName
             .replace(/^\d{2}\s*/, '')
             .replace(/\b(여|남)\b/gi, '')
