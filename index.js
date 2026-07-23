@@ -460,7 +460,7 @@ client.on('interactionCreate', async interaction => {
   if (interaction.isButton()) {
     const customId = interaction.customId;
 
-    // 1. 패널에서 티켓 생성 버튼을 눌렀을 때만 새 채널 생성
+    // 1. 패널에서 티켓 생성 버튼을 눌렀을 때
     if (['ticket_server', 'ticket_report', 'ticket_verify', 'ticket_event', 'ticket_etc'].includes(customId)) {
       if (!interaction.deferred && !interaction.replied) {
         try {
@@ -473,13 +473,13 @@ client.on('interactionCreate', async interaction => {
         const user = interaction.user;
         const categoryType = customId.replace('ticket_', '');
         
-        let categoryNameKor = '기타 문의';
-        if (categoryType === 'server') categoryNameKor = '서버 문의';
-        else if (categoryType === 'report') categoryNameKor = '유저 신고 및 분쟁';
-        else if (categoryType === 'verify') categoryNameKor = '명의 인증';
-        else if (categoryType === 'event') categoryNameKor = '이벤트 문의';
+        let categoryNameKor = '기타문의';
+        if (categoryType === 'server') categoryNameKor = '서버문의';
+        else if (categoryType === 'report') categoryNameKor = '유저신고및분쟁';
+        else if (categoryType === 'verify') categoryNameKor = '명의인증';
+        else if (categoryType === 'event') categoryNameKor = '이벤트문의';
 
-        const channelName = `${categoryType}-${user.username}-티켓`;
+        const channelName = `${categoryNameKor}-${user.username}-티켓`;
         
         const existingChannel = guild.channels.cache.find(c => c.name === channelName);
         if (existingChannel) {
@@ -538,16 +538,10 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // ✨ 2. 티켓 닫기 버튼 (새 채널 생성 안 함! 해당 채널에서 일반 유저 채팅만 차단)
+    // ✨ 2. 티켓 닫기 버튼
     if (customId === 'ticket_close') {
-      if (!interaction.deferred && !interaction.replied) {
-        try { await interaction.deferReply({ flags: MessageFlags.Ephemeral }); } catch (e) {}
-      }
       try {
         const channel = interaction.channel;
-        
-        // 채널 이름에서 유저 이름 추출 또는 오버라이트 수정 (채널에 메시지를 보낸 유저나 권한 목록 탐색)
-        // 여기서는 해당 채널에서 뷰 권한이 있는 일반 유저의 채팅 권한을 막습니다.
         const overwrites = channel.permissionOverwrites.cache;
         for (const [id, overwrite] of overwrites) {
           if (id !== interaction.guild.id && id !== client.user.id) {
@@ -560,18 +554,17 @@ client.on('interactionCreate', async interaction => {
           new ButtonBuilder().setCustomId('ticket_delete').setLabel('티켓 삭제').setStyle(ButtonStyle.Danger)
         );
 
-        await interaction.editReply({ content: '🔒 티켓이 닫혔습니다. 이제 이 채널에서 채팅을 입력할 수 없습니다.' });
-        return await channel.send({ content: '🔒 이 티켓은 닫혔습니다.', components: [openRow] });
+        await interaction.update({ content: '🔒 티켓이 닫혔습니다. 이제 이 채널에서 채팅을 입력할 수 없습니다.', components: [openRow] });
       } catch (err) {
-        return await interaction.editReply({ content: '⚠️ 티켓을 닫는 중 오류가 발생했습니다.' });
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ content: '⚠️ 티켓을 닫는 중 오류가 발생했습니다.', flags: MessageFlags.Ephemeral });
+        }
       }
+      return;
     }
 
     // ✨ 3. 티켓 열기 버튼
     if (customId === 'ticket_reopen') {
-      if (!interaction.deferred && !interaction.replied) {
-        try { await interaction.deferReply({ flags: MessageFlags.Ephemeral }); } catch (e) {}
-      }
       try {
         const channel = interaction.channel;
         const overwrites = channel.permissionOverwrites.cache;
@@ -586,26 +579,33 @@ client.on('interactionCreate', async interaction => {
           new ButtonBuilder().setCustomId('ticket_delete').setLabel('티켓 삭제').setStyle(ButtonStyle.Danger)
         );
 
-        await interaction.editReply({ content: '🔓 티켓이 다시 열렸습니다.' });
-        return await channel.send({ content: '🔓 티켓이 다시 열렸습니다.', components: [controlRow] });
+        await interaction.update({ content: '🔓 티켓이 다시 열렸습니다.', components: [controlRow] });
       } catch (err) {
-        return await interaction.editReply({ content: '⚠️ 티켓을 여는 중 오류가 발생했습니다.' });
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ content: '⚠️ 티켓을 여는 중 오류가 발생했습니다.', flags: MessageFlags.Ephemeral });
+        }
       }
+      return;
     }
 
-    // ✨ 4. 티켓 삭제 버튼
+    // ✨ 4. 티켓 삭제 버튼 (관리자 전용 권한 검증 추가)
     if (customId === 'ticket_delete') {
-      if (!interaction.deferred && !interaction.replied) {
-        try { await interaction.deferReply({ flags: MessageFlags.Ephemeral }); } catch (e) {}
+      // 관리자 권한(Administrator) 체크
+      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+        return await interaction.reply({ content: '⚠️ 티켓 삭제는 **관리자**만 가능합니다!', flags: MessageFlags.Ephemeral });
       }
+
       try {
-        await interaction.editReply({ content: '🗑️ 잠시 후 채널이 삭제됩니다...' });
+        await interaction.update({ content: '🗑️ 잠시 후 채널이 삭제됩니다...', components: [] });
         setTimeout(async () => {
           await interaction.channel.delete().catch(() => {});
-        }, 3000);
+        }, 2000);
       } catch (err) {
-        return await interaction.editReply({ content: '⚠️ 채널을 삭제하는 중 오류가 발생했습니다.' });
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ content: '⚠️ 채널을 삭제하는 중 오류가 발생했습니다.', flags: MessageFlags.Ephemeral });
+        }
       }
+      return;
     }
 
     return;
