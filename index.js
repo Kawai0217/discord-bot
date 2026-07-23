@@ -456,9 +456,11 @@ client.on('messageUpdate', (oldMessage, newMessage) => {
 });
 
 client.on('interactionCreate', async interaction => {
-  // 버튼 클릭(티켓 생성 등) 처리
+  // ✨ 버튼 클릭(티켓 생성 및 닫기/열기/삭제) 처리
   if (interaction.isButton()) {
-    if (interaction.customId.startsWith('ticket_')) {
+    const customId = interaction.customId;
+
+    if (customId.startsWith('ticket_')) {
       if (!interaction.deferred && !interaction.replied) {
         try {
           await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -468,7 +470,7 @@ client.on('interactionCreate', async interaction => {
       try {
         const guild = interaction.guild;
         const user = interaction.user;
-        const categoryType = interaction.customId.replace('ticket_', '');
+        const categoryType = customId.replace('ticket_', '');
         
         let categoryNameKor = '기타 문의';
         if (categoryType === 'server') categoryNameKor = '서버 문의';
@@ -476,16 +478,27 @@ client.on('interactionCreate', async interaction => {
         else if (categoryType === 'verify') categoryNameKor = '명의 인증';
         else if (categoryType === 'event') categoryNameKor = '이벤트 문의';
 
-        const channelName = `문의-${categoryNameKor}-${user.username}`;
+        const channelName = `${categoryType}-${user.username}-티켓`;
         
         const existingChannel = guild.channels.cache.find(c => c.name === channelName);
         if (existingChannel) {
           return await interaction.editReply({ content: `⚠️ 이미 생성된 문의 채널이 있습니다: <#${existingChannel.id}>` });
         }
 
+        const parentCategory = interaction.channel.parent;
+        let maxPosition = 0;
+        if (parentCategory) {
+          const categoryChannels = guild.channels.cache.filter(c => c.parentId === parentCategory.id);
+          categoryChannels.forEach(c => {
+            if (c.position > maxPosition) maxPosition = c.position;
+          });
+        }
+
         const ticketChannel = await guild.channels.create({
           name: channelName,
           type: ChannelType.GuildText,
+          parent: parentCategory ? parentCategory.id : null,
+          position: maxPosition + 1,
           permissionOverwrites: [
             {
               id: guild.id,
@@ -507,7 +520,12 @@ client.on('interactionCreate', async interaction => {
           .setTitle(`✉️ [${categoryNameKor}] 문의 채널`)
           .setDescription(`<@${user.id}> 님, 문의해주셔서 감사합니다!\n관리자가 확인 후 곧 답변을 도와드릴 테니 내용을 남겨주세요.`);
 
-        await ticketChannel.send({ content: `<@${user.id}>`, embeds: [welcomeEmbed] });
+        const controlRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('ticket_close').setLabel('티켓 닫기').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId('ticket_delete').setLabel('티켓 삭제').setStyle(ButtonStyle.Danger)
+        );
+
+        await ticketChannel.send({ content: `<@${user.id}>`, embeds: [welcomeEmbed], components: [controlRow] });
 
         return await interaction.editReply({ content: `✅ 비공개 문의 채널이 생성되었습니다: <#${ticketChannel.id}>` });
       } catch (err) {
@@ -517,6 +535,64 @@ client.on('interactionCreate', async interaction => {
         } catch (e) {}
       }
     }
+
+    // ✨ 티켓 닫기 버튼
+    if (customId === 'ticket_close') {
+      if (!interaction.deferred && !interaction.replied) {
+        try { await interaction.deferReply({ flags: MessageFlags.Ephemeral }); } catch (e) {}
+      }
+      try {
+        const channel = interaction.channel;
+        await channel.permissionOverwrites.edit(interaction.user, { SendMessages: false });
+        
+        const openRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('ticket_reopen').setLabel('티켓 열기').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId('ticket_delete').setLabel('티켓 삭제').setStyle(ButtonStyle.Danger)
+        );
+
+        await interaction.editReply({ content: '🔒 티켓이 닫혔습니다.' });
+        return await channel.send({ content: '🔒 이 티켓은 닫혔습니다.', components: [openRow] });
+      } catch (err) {
+        return await interaction.editReply({ content: '⚠️ 티켓을 닫는 중 오류가 발생했습니다.' });
+      }
+    }
+
+    // ✨ 티켓 열기 버튼
+    if (customId === 'ticket_reopen') {
+      if (!interaction.deferred && !interaction.replied) {
+        try { await interaction.deferReply({ flags: MessageFlags.Ephemeral }); } catch (e) {}
+      }
+      try {
+        const channel = interaction.channel;
+        await channel.permissionOverwrites.edit(interaction.user, { SendMessages: true });
+
+        const controlRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('ticket_close').setLabel('티켓 닫기').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId('ticket_delete').setLabel('티켓 삭제').setStyle(ButtonStyle.Danger)
+        );
+
+        await interaction.editReply({ content: '🔓 티켓이 다시 열렸습니다.' });
+        return await channel.send({ content: '🔓 티켓이 다시 열렸습니다.', components: [controlRow] });
+      } catch (err) {
+        return await interaction.editReply({ content: '⚠️ 티켓을 여는 중 오류가 발생했습니다.' });
+      }
+    }
+
+    // ✨ 티켓 삭제 버튼
+    if (customId === 'ticket_delete') {
+      if (!interaction.deferred && !interaction.replied) {
+        try { await interaction.deferReply({ flags: MessageFlags.Ephemeral }); } catch (e) {}
+      }
+      try {
+        await interaction.editReply({ content: '🗑️ 잠시 후 채널이 삭제됩니다...' });
+        setTimeout(async () => {
+          await interaction.channel.delete().catch(() => {});
+        }, 3000);
+      } catch (err) {
+        return await interaction.editReply({ content: '⚠️ 채널을 삭제하는 중 오류가 발생했습니다.' });
+      }
+    }
+
     return;
   }
 
@@ -539,7 +615,6 @@ client.on('interactionCreate', async interaction => {
 
   const isPrivateCommand = commandName === '백업' || commandName === '복구' || commandName === '문의패널';
 
-  // ✨ 타임아웃 방지를 위해 모든 슬래시 명령어에 deferReply 즉시 적용
   if (!interaction.deferred && !interaction.replied) {
     try {
       await interaction.deferReply({ flags: isPrivateCommand ? MessageFlags.Ephemeral : undefined });
