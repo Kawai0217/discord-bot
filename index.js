@@ -538,7 +538,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // ✨ 2. 티켓 닫기 버튼 (deferUpdate로 타임아웃 오류 원천 차단)
+    // ✨ 2. 티켓 닫기 버튼 (누구나 사용 가능, deferUpdate 적용)
     if (customId === 'ticket_close') {
       try {
         await interaction.deferUpdate();
@@ -562,7 +562,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // ✨ 3. 티켓 열기 버튼 (deferUpdate로 타임아웃 오류 원천 차단)
+    // ✨ 3. 티켓 열기 버튼 (누구나 사용 가능, deferUpdate 적용)
     if (customId === 'ticket_reopen') {
       try {
         await interaction.deferUpdate();
