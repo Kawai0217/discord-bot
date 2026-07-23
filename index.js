@@ -541,23 +541,25 @@ client.on('interactionCreate', async interaction => {
     // ✨ 2. 티켓 닫기 버튼
     if (customId === 'ticket_close') {
       try {
-        const channel = interaction.channel;
-        const overwrites = channel.permissionOverwrites.cache;
-        for (const [id] of overwrites) {
-          if (id !== interaction.guild.id && id !== client.user.id) {
-            await channel.permissionOverwrites.edit(id, { SendMessages: false });
-          }
-        }
-        
         const openRow = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('ticket_reopen').setLabel('티켓 열기').setStyle(ButtonStyle.Success),
           new ButtonBuilder().setCustomId('ticket_delete').setLabel('티켓 삭제').setStyle(ButtonStyle.Danger)
         );
 
-        return await interaction.update({ 
+        // 타임아웃 방지를 위해 즉시 버튼 상태와 텍스트를 업데이트합니다.
+        await interaction.update({ 
           content: '🔒 티켓이 닫혔습니다. 이제 이 채널에서 채팅을 입력할 수 없습니다.', 
           components: [openRow] 
         });
+
+        // 응답 후 백그라운드에서 일반 사용자들의 채팅 권한을 막습니다.
+        const channel = interaction.channel;
+        const overwrites = channel.permissionOverwrites.cache;
+        for (const [id] of overwrites) {
+          if (id !== interaction.guild.id && id !== client.user.id) {
+            await channel.permissionOverwrites.edit(id, { SendMessages: false }).catch(() => {});
+          }
+        }
       } catch (err) {
         console.error('티켓 닫기 오류:', err);
       }
@@ -567,38 +569,39 @@ client.on('interactionCreate', async interaction => {
     // ✨ 3. 티켓 열기 버튼
     if (customId === 'ticket_reopen') {
       try {
-        const channel = interaction.channel;
-        const overwrites = channel.permissionOverwrites.cache;
-        for (const [id] of overwrites) {
-          if (id !== interaction.guild.id && id !== client.user.id) {
-            await channel.permissionOverwrites.edit(id, { SendMessages: true });
-          }
-        }
-
         const controlRow = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('ticket_close').setLabel('티켓 닫기').setStyle(ButtonStyle.Secondary),
           new ButtonBuilder().setCustomId('ticket_delete').setLabel('티켓 삭제').setStyle(ButtonStyle.Danger)
         );
 
-        return await interaction.update({ 
+        // 타임아웃 방지를 위해 즉시 버튼 상태를 원래대로 바꿉니다.
+        await interaction.update({ 
           content: '🔓 티켓이 다시 열렸습니다.', 
           components: [controlRow] 
         });
+
+        // 응답 후 백그라운드에서 사용자들의 채팅 권한을 다시 풀어줍니다.
+        const channel = interaction.channel;
+        const overwrites = channel.permissionOverwrites.cache;
+        for (const [id] of overwrites) {
+          if (id !== interaction.guild.id && id !== client.user.id) {
+            await channel.permissionOverwrites.edit(id, { SendMessages: true }).catch(() => {});
+          }
+        }
       } catch (err) {
         console.error('티켓 열기 오류:', err);
       }
       return;
     }
 
-    // ✨ 4. 티켓 삭제 버튼 (관리자 전용 권한 검증 및 deferUpdate 적용)
+    // ✨ 4. 티켓 삭제 버튼 (관리자 전용 권한 검증)
     if (customId === 'ticket_delete') {
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
         return await interaction.reply({ content: '⚠️ 티켓 삭제는 **관리자**만 가능합니다!', flags: MessageFlags.Ephemeral });
       }
 
       try {
-        await interaction.deferUpdate();
-        await interaction.editReply({ content: '🗑️ 잠시 후 채널이 삭제됩니다...', components: [] });
+        await interaction.update({ content: '🗑️ 잠시 후 채널이 삭제됩니다...', components: [] });
         setTimeout(async () => {
           await interaction.channel.delete().catch(() => {});
         }, 2000);
