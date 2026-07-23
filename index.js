@@ -1022,20 +1022,21 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // ✨ [최종 완벽한 전적 검색용 이름 추출 로직]
+          // ✨ [강력 개편된 전적 검색용 이름 추출 로직]
           // 1. 앞에 붙은 나이/숫자(예: "96 ") 제거
           let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
 
-          // 2. 만약 맨 뒤에 성별(남/여)이 붙어 있다면 성별 단어 먼저 떼어냄 (예: "이시벅#조 심 남" -> "이시벅#조 심")
+          // 2. 맨 뒤에 붙은 성별(남, 여) 단어와 그 앞의 공백을 강제로 깔끔하게 싹둑 자름
           cleanName = cleanName.replace(/\s+(남|여)$/i, '').trim();
 
-          // 3. 라이엇 태그(#)가 포함된 경우 처리
+          // 3. 라이엇 태그(#) 처리: 
+          // 만약 중간에 여러 개의 해시나 공백 태그가 있어도 마지막 '#'을 기준으로 정확히 분리
           const lastHashIndex = cleanName.lastIndexOf('#');
           if (lastHashIndex !== -1) {
             let riotName = cleanName.substring(0, lastHashIndex).trim();
             let riotTag = cleanName.substring(lastHashIndex + 1).trim();
 
-            // 태그 뒤에 또 공백이나 성별/티어가 남아있다면 첫 단어만 태그로 채택
+            // 태그 뒤에 혹시라도 불필요한 단어가 더 붙어있다면 첫 번째 덩어리만 태그로 채택
             if (riotTag.includes(' ')) {
               riotTag = riotTag.split(/\s+/)[0];
             }
