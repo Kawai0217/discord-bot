@@ -1021,13 +1021,13 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // ✨ 전적 검색용 이름 추출 로직 (절대 수정 안 함)
+          // ✨ 전적 검색용 이름 추출 로직 (태그 뒤 성별/티어 단어가 안 들어가도록 정확히 분리)
           let cleanName = rawName;
-          const tagMatch = rawName.match(/(.+?)\s*#\s*(.+)/);
+          const tagMatch = rawName.match(/(.+?)\s*#\s*([^\s#]+)/);
 
           if (tagMatch) {
             let riotName = tagMatch[1].replace(/^\d{2}\s*/, '').trim();
-            let riotTag = tagMatch[2].replace(/\s+(여|남)\s*[A-Za-z]?\s*$/, '').trim();
+            let riotTag = tagMatch[2].trim();
             cleanName = `${riotName}-${riotTag}`;
           } else {
             cleanName = rawName.replace(/^\d{2}\s*/, '')
