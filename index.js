@@ -1026,35 +1026,29 @@ client.on('interactionCreate', async interaction => {
           // 1. 앞에 붙은 나이/숫자(예: "96 ") 제거
           let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
 
-          // 2. 가장 마지막에 있는 '#'의 위치 확인 (라이엇 태그 존재 여부 파악)
+          // 2. 만약 맨 뒤에 성별(남/여)이 붙어 있다면 성별 단어 먼저 떼어냄 (예: "이시벅#조 심 남" -> "이시벅#조 심")
+          cleanName = cleanName.replace(/\s+(남|여)$/i, '').trim();
+
+          // 3. 라이엇 태그(#)가 포함된 경우 처리
           const lastHashIndex = cleanName.lastIndexOf('#');
-
           if (lastHashIndex !== -1) {
-            // 라이엇 태그(#)가 있는 경우
             let riotName = cleanName.substring(0, lastHashIndex).trim();
-            let riotTagPart = cleanName.substring(lastHashIndex + 1).trim();
+            let riotTag = cleanName.substring(lastHashIndex + 1).trim();
 
-            const tagParts = riotTagPart.split(/\s+/);
-            let riotTag = tagParts[0]; // 진짜 라이엇 태그
+            // 태그 뒤에 또 공백이나 성별/티어가 남아있다면 첫 단어만 태그로 채택
+            if (riotTag.includes(' ')) {
+              riotTag = riotTag.split(/\s+/)[0];
+            }
 
             cleanName = riotTag ? `${riotName}-${riotTag}` : riotName;
           } else {
-            // 라이엇 태그(#)가 아예 없는 경우 (예: "규 밍#밍 규 여")
-            // 맨 마지막 단어가 성별(남, 여)이거나 티어 알파벳(C, GM, M, D, E, P, G, S, B, I, U)이면 떼어냄
-            const nameParts = cleanName.split(/\s+/);
-            if (nameParts.length > 1) {
-              const lastWord = nameParts[nameParts.length - 1].toLowerCase();
-              const isGenderOrTier = /^(남|여|c|gm|m|d|e|p|g|s|b|i|u)$/.test(lastWord);
-              if (isGenderOrTier) {
-                nameParts.pop(); // 맨 마지막 성별/티어 단어 제거
-              }
-            }
-            cleanName = nameParts.join('-');
+            // 태그가 없는 경우 띄어쓰기를 하이픈으로 변경
+            cleanName = cleanName.replace(/\s+/g, '-');
           }
 
           if (!cleanName) cleanName = rawName;
 
-          // ✨ 디스코드에 표시될 닉네임 형식 (오직 맨 뒤 성별/티어만 지우고 닉네임과 태그는 온전히 보존)
+          // ✨ 디스코드에 표시될 닉네임 형식 (오직 맨 뒤 성별만 지우고 닉네임과 태그는 온전히 보존)
           let formattedName = rawName
             .replace(/^\d{2}\s*/, '')
             .replace(/\b(여|남)\b/gi, '')
