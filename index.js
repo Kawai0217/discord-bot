@@ -231,7 +231,7 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addIntegerOption(option => 
       option.setName('인원수')
-        .setDescription('한 페이지에 볼 인원수 (기본 10명, 최대 60명)')
+        .setDescription('선착순으로 자를 인원수 (기본 40명, 최대 60명)')
         .setMinValue(1)
         .setMaxValue(60)
         .setRequired(false)
@@ -410,289 +410,52 @@ client.on('messageCreate', async (message) => {
   }
 });
 
-client.on('interactionCreate', async interaction => {
-  if (interaction.isButton()) {
-    const { customId, channel, user, member, guild } = interaction;
-    
-    // 개별 비공개 텍스트 채널 방식의 티켓 생성 처리
-    if (customId.startsWith('ticket_') && customId !== 'ticket_close' && customId !== 'ticket_reopen' && customId !== 'ticket_delete') {
-      const ticketTypeMap = {
-        'ticket_server': '서버문의',
-        'ticket_report': '신고분쟁',
-        'ticket_verify': '명의인증',
-        'ticket_event': '이벤트문의',
-        'ticket_etc': '기타문의'
-      };
+// 🗑️ 유저가 'ㅅ', '손', 't' 메시지를 삭제했을 때 명단에서 즉시 제외
+client.on('messageDelete', (message) => {
+  if (message.author?.bot) return;
+  const text = message.content?.trim();
+  if (text === 'ㅅ' || text === '손' || text === 't') {
+    const userId = message.author.id;
+    const guildId = message.guild?.id;
+    const channelId = message.channel.id;
+    if (!guildId) return;
 
-      const typeName = ticketTypeMap[customId] || '기타문의';
-      const channelName = `${user.username.toLowerCase().replace(/[^a-z0-9]/g, '')}-${typeName}-티켓`;
-
-      await interaction.deferReply({ ephemeral: true });
-
-      try {
-        const permissionOverwrites = [
-          {
-            id: guild.id, // @everyone 보기 권한 차단
-            deny: [PermissionFlagsBits.ViewChannel]
-          },
-          {
-            id: user.id, // 티켓 연 본인 허용
-            allow: [
-              PermissionFlagsBits.ViewChannel,
-              PermissionFlagsBits.SendMessages,
-              PermissionFlagsBits.ReadMessageHistory
-            ]
-          },
-          {
-            id: client.user.id, // 봇 허용
-            allow: [
-              PermissionFlagsBits.ViewChannel,
-              PermissionFlagsBits.SendMessages,
-              PermissionFlagsBits.ManageChannels
-            ]
-          }
-        ];
-
-        try {
-          await guild.members.fetch();
-          const admins = guild.members.cache.filter(m => m.permissions.has(PermissionFlagsBits.Administrator) && !m.user.bot);
-          for (const [adminId] of admins) {
-            permissionOverwrites.push({
-              id: adminId,
-              allow: [
-                PermissionFlagsBits.ViewChannel,
-                PermissionFlagsBits.SendMessages,
-                PermissionFlagsBits.ReadMessageHistory
-              ]
-            });
-          }
-        } catch (e) {}
-
-        const ticketChannel = await guild.channels.create({
-          name: channelName,
-          type: ChannelType.GuildText,
-          parent: channel.parentId || null,
-          permissionOverwrites: permissionOverwrites
-        });
-
-        const welcomeEmbed = new EmbedBuilder()
-          .setColor('#5865F2')
-          .setTitle(`🎫 ${typeName} 채널입니다.`)
-          .setDescription(`<@${user.id}> 님, 문의 내용을 남겨주시면 관리자가 확인 후 답변해 드립니다.\n\n업무가 완료되면 아래 버튼을 눌러 티켓을 닫아주세요.`);
-
-        const ticketButtons = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId('ticket_close')
-            .setLabel('🔒 티켓 닫기')
-            .setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder()
-            .setCustomId('ticket_delete')
-            .setLabel('🗑️ 티켓 삭제 (관리자용)')
-            .setStyle(ButtonStyle.Danger)
-        );
-
-        await ticketChannel.send({ content: `<@${user.id}>`, embeds: [welcomeEmbed], components: [ticketButtons] });
-        return await interaction.editReply({ content: `✅ 비공개 티켓 채널이 생성되었습니다: <#${ticketChannel.id}>` });
-      } catch (err) {
-        console.error('채널 생성 오류:', err);
-        return await interaction.editReply({ content: '⚠️ 티켓 채널 생성 중 오류가 발생했습니다.' });
+    const participantsData = loadData(PARTICIPANTS_FILE);
+    if (participantsData[guildId]?.[channelId]) {
+      const index = participantsData[guildId][channelId].indexOf(userId);
+      if (index !== -1) {
+        participantsData[guildId][channelId].splice(index, 1);
+        saveData(PARTICIPANTS_FILE, participantsData);
       }
-    }
-
-    if (customId === 'ticket_close') {
-      await interaction.deferUpdate(); // 타임아웃 방지용 즉시 응답 지연 처리
-
-      const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
-      const userOverwrite = channel.permissionOverwrites.cache.get(user.id);
-      const isTicketOwner = userOverwrite && userOverwrite.allow.has(PermissionFlagsBits.ViewChannel);
-
-      if (!isAdmin && !isTicketOwner) {
-        return interaction.followUp({ content: '⚠️ 티켓 닫기는 관리자 또는 티켓을 연 본인만 할 수 있습니다!', ephemeral: true });
-      }
-
-      // 메시지 전송 권한 비동기 차단 처리
-      try {
-        const overwritePromises = channel.permissionOverwrites.cache.map(async (overwrite, id) => {
-          if (id !== guild.id && id !== client.user.id && !guild.members.cache.get(id)?.permissions.has(PermissionFlagsBits.Administrator)) {
-            return channel.permissionOverwrites.edit(id, { SendMessages: false });
-          }
-        });
-        await Promise.all(overwritePromises);
-      } catch (e) {}
-
-      const reopenedButtons = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('ticket_reopen')
-          .setLabel('🔓 티켓 열기')
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId('ticket_delete')
-          .setLabel('🗑️ 티켓 삭제 (관리자용)')
-          .setStyle(ButtonStyle.Danger)
-      );
-
-      await interaction.editReply({ content: '🔒 티켓이 마감(잠금)되었습니다.', components: [reopenedButtons] });
-      return;
-    }
-
-    if (customId === 'ticket_reopen') {
-      await interaction.deferUpdate(); // 타임아웃 방지용 즉시 응답 지연 처리
-
-      const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
-      const userOverwrite = channel.permissionOverwrites.cache.get(user.id);
-      const isTicketOwner = userOverwrite && userOverwrite.allow.has(PermissionFlagsBits.ViewChannel);
-
-      if (!isAdmin && !isTicketOwner) {
-        return interaction.followUp({ content: '⚠️ 티켓 열기는 관리자 또는 티켓을 연 본인만 할 수 있습니다!', ephemeral: true });
-      }
-
-      // 메시지 전송 권한 복구 비동기 처리
-      try {
-        const overwritePromises = channel.permissionOverwrites.cache.map(async (overwrite, id) => {
-          if (id !== guild.id && id !== client.user.id) {
-            return channel.permissionOverwrites.edit(id, { SendMessages: true });
-          }
-        });
-        await Promise.all(overwritePromises);
-      } catch (e) {}
-
-      const closedButtons = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('ticket_close')
-          .setLabel('🔒 티켓 닫기')
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId('ticket_delete')
-          .setLabel('🗑️ 티켓 삭제 (관리자용)')
-          .setStyle(ButtonStyle.Danger)
-      );
-
-      await interaction.editReply({ content: '🔓 티켓이 다시 열렸습니다. 대화를 이어가실 수 있습니다.', components: [closedButtons] });
-      return;
-    }
-
-    if (customId === 'ticket_delete') {
-      if (!member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ content: '⚠️ 티켓 삭제는 관리자만 할 수 있습니다!', ephemeral: true });
-      }
-
-      await interaction.reply({ content: '🗑️ 5초 뒤에 티켓 채널이 영구 삭제됩니다...', ephemeral: false });
-      setTimeout(async () => {
-        try {
-          await channel.delete();
-        } catch (e) {}
-      }, 5000);
-      return;
-    }
-
-    // 🎮 내전인원 페이지네이션 버튼 처리 (page_prev 또는 page_next)
-    if (customId.startsWith('page_')) {
-      const participantsData = loadData(PARTICIPANTS_FILE);
-      const guildId = guild.id;
-      const channelId = channel.id;
-      const currentParticipants = participantsData[guildId]?.[channelId] || [];
-
-      if (currentParticipants.length === 0) {
-        return interaction.update({ content: '참가자가 없습니다.', embeds: [], components: [] });
-      }
-
-      const footerText = interaction.message.embeds[0]?.footer?.text || '';
-      const matchPage = footerText.match(/페이지\s*(\d+)\s*\/\s*(\d+)/);
-      const matchLimit = footerText.match(/단위:\s*(\d+)명/);
-
-      let currentPage = matchPage ? parseInt(matchPage[1]) : 1;
-      const itemsPerPage = matchLimit ? parseInt(matchLimit[1]) : 10;
-
-      if (customId === 'page_prev') {
-        currentPage = currentPage > 1 ? currentPage - 1 : 1;
-      } else if (customId === 'page_next') {
-        currentPage = currentPage + 1;
-      }
-
-      const userDetails = [];
-      for (const userId of currentParticipants) {
-        try {
-          const memberObj = await guild.members.fetch(userId);
-          const userRoleNames = memberObj.roles.cache.map(r => r.name.toLowerCase());
-
-          let matchedTier = { code: 'U', name: 'Unranked', color: '#808080', rank: 11 };
-          for (const t of tierInfo) {
-            const isMatch = userRoleNames.some(roleName => 
-              t.keywords.some(kw => roleName.includes(kw.toLowerCase()))
-            );
-            if (isMatch) {
-              matchedTier = t;
-              break;
-            }
-          }
-
-          const userLines = [];
-          userRoleNames.forEach(roleName => {
-            lineKeywords.forEach(line => {
-              if (roleName.includes(line) && !userLines.includes(line)) {
-                userLines.push(line);
-              }
-            });
-          });
-
-          const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
-          const rawName = memberObj.nickname || memberObj.user.globalName || memberObj.user.username;
-
-          // 🛡️ 나이, 성별, 티어를 제외하고 라이엇 ID 이름과 태그의 띄어쓰기를 완벽하게 유지하여 추출
-          let cleanName = rawName;
-          const tagMatch = rawName.match(/^\d{2}\s+(.+?)\s*#\s*([^\s#]+(?:\s+[^\s#]+)*)(?=\s+(?:여|남|[C,GM,M,D,E,P,G,S,B,I,U])\b|$)/i) || 
-                           rawName.match(/(.+?)\s*#\s*([^\s#]+(?:\s+[^\s#]+)*)/);
-
-          if (tagMatch) {
-            let riotName = tagMatch[1].trim();
-            let riotTag = tagMatch[2].trim();
-
-            riotName = riotName.replace(/^\d{2}\s*/, '');
-            riotTag = riotTag.replace(/\s+(여|남)\s*[A-Za-z]?\s*$/, '').trim();
-
-            cleanName = `${riotName}-${riotTag}`;
-          } else {
-            cleanName = rawName.replace(/^\d{2}\s*/, '')
-              .replace(/\b(여|남)\b/g, '')
-              .replace(/\b(c|gm|m|d|e|p|g|s|b|i|u)\b/gi, '')
-              .trim();
-          }
-          if (!cleanName) cleanName = rawName;
-
-          const encodedName = encodeURIComponent(cleanName);
-          const fowLink = `https://fow.lol/find/${encodedName}`;
-
-          userDetails.push({
-            rank: matchedTier.rank,
-            text: `[${matchedTier.code}] ${rawName} / ${lineText} ([전적](${fowLink}))`
-          });
-        } catch (e) {}
-      }
-
-      userDetails.sort((a, b) => a.rank - b.rank);
-
-      const newTotalPages = Math.ceil(userDetails.length / itemsPerPage);
-      if (currentPage > newTotalPages) currentPage = newTotalPages;
-      if (currentPage < 1) currentPage = 1;
-
-      const startIndex = (currentPage - 1) * itemsPerPage;
-      const slicedItems = userDetails.slice(startIndex, startIndex + itemsPerPage);
-      const listDesc = slicedItems.map(u => u.text).join('\n');
-
-      const embed = new EmbedBuilder()
-        .setColor('#5865F2')
-        .setTitle('🎮 내전 참가자 명단 (티어순)')
-        .setDescription(listDesc)
-        .setFooter({ text: `총 참가 인원: ${userDetails.length}명 | 단위: ${itemsPerPage}명 | 페이지 ${currentPage} / ${newTotalPages}` });
-
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('page_prev').setLabel('◀ 이전').setStyle(ButtonStyle.Primary).setDisabled(currentPage <= 1),
-        new ButtonBuilder().setCustomId('page_next').setLabel('다음 ▶').setStyle(ButtonStyle.Primary).setDisabled(currentPage >= newTotalPages)
-      );
-
-      return await interaction.update({ embeds: [embed], components: [row] });
     }
   }
+});
+
+// ✏️ 유저가 메시지 내용을 바꿨을 때(수정했을 때)도 명단에서 제외
+client.on('messageUpdate', (oldMessage, newMessage) => {
+  if (newMessage.author?.bot) return;
+  const oldText = oldMessage.content?.trim();
+  const newText = newMessage.content?.trim();
+
+  if (['ㅅ', '손', 't'].includes(oldText) && !['ㅅ', '손', 't'].includes(newText)) {
+    const userId = newMessage.author.id;
+    const guildId = newMessage.guild?.id;
+    const channelId = newMessage.channel.id;
+    if (!guildId) return;
+
+    const participantsData = loadData(PARTICIPANTS_FILE);
+    if (participantsData[guildId]?.[channelId]) {
+      const index = participantsData[guildId][channelId].indexOf(userId);
+      if (index !== -1) {
+        participantsData[guildId][channelId].splice(index, 1);
+        saveData(PARTICIPANTS_FILE, participantsData);
+      }
+    }
+  }
+});
+
+client.on('interactionCreate', async interaction => {
+  if (interaction.isButton()) return;
 
   if (!interaction.isChatInputCommand()) return;
 
@@ -1216,16 +979,23 @@ client.on('interactionCreate', async interaction => {
     if (commandName === '내전인원') {
       const currentParticipants = participantsData[guildId][channelId] || [];
       if (currentParticipants.length === 0) {
-        const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎮 내전 참가자 명단 (티어순)').setDescription('참가자가 없습니다.');
+        const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎮 내전 참가자 명단').setDescription('참가자가 없습니다.');
         return await interaction.editReply({ embeds: [embed] });
       }
 
-      const itemsPerPage = options.getInteger('인원수') || 10;
+      const limitCount = options.getInteger('인원수') || 40;
+
+      // 선착순 인원수만큼만 먼저 잘라냅니다.
+      const slicedParticipants = currentParticipants.slice(0, limitCount);
 
       const userDetails = [];
-      for (const userId of currentParticipants) {
+      const validParticipants = [];
+
+      for (const userId of slicedParticipants) {
         try {
           const member = await guild.members.fetch(userId);
+          validParticipants.push(userId);
+
           const userRoleNames = member.roles.cache.map(r => r.name.toLowerCase());
 
           let matchedTier = { code: 'U', name: 'Unranked', color: '#808080', rank: 11 };
@@ -1251,7 +1021,6 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // 🛡️ 나이, 성별, 티어를 제외하고 라이엇 ID 이름과 태그의 띄어쓰기를 완벽하게 유지하여 추출
           let cleanName = rawName;
           const tagMatch = rawName.match(/^\d{2}\s+(.+?)\s*#\s*([^\s#]+(?:\s+[^\s#]+)*)(?=\s+(?:여|남|[C,GM,M,D,E,P,G,S,B,I,U])\b|$)/i) || 
                            rawName.match(/(.+?)\s*#\s*([^\s#]+(?:\s+[^\s#]+)*)/);
@@ -1272,38 +1041,46 @@ client.on('interactionCreate', async interaction => {
           }
           if (!cleanName) cleanName = rawName;
 
+          // 닉네임에서 앞의 두 자리 숫자와 성별(남/여) 및 불필요한 공백을 깔끔하게 제거
+          let formattedName = rawName
+            .replace(/^\d{2}\s*/, '')
+            .replace(/\b(여|남)\b/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+
           const encodedName = encodeURIComponent(cleanName);
           const fowLink = `https://fow.lol/find/${encodedName}`;
 
+          // ✨ 요청하신 대로 [티어] 닉네임 / 라인 (전적) 형식으로 변경
           userDetails.push({
             rank: matchedTier.rank,
-            text: `[${matchedTier.code}] ${rawName} / ${lineText} ([전적](${fowLink}))`
+            text: `[${matchedTier.code}] ${formattedName} / ${lineText} ([전적](${fowLink}))`
           });
         } catch (e) {}
       }
 
+      // 선착순 인원 내부에서 티어순(rank 오름차순)으로 정렬합니다.
       userDetails.sort((a, b) => a.rank - b.rank);
 
-      const totalPages = Math.ceil(userDetails.length / itemsPerPage);
-      const currentPage = 1;
-
-      const slicedItems = userDetails.slice(0, itemsPerPage);
-      const listDesc = slicedItems.map(u => u.text).join('\n');
+      // 글자 수 제한(4096자)을 넘지 않도록 안전하게 처리
+      let descriptionText = '';
+      for (const u of userDetails) {
+        if ((descriptionText + u.text + '\n').length > 4000) {
+          descriptionText += '\n*(글자 수 제한으로 일부 인원이 생략되었습니다.)*';
+          break;
+        }
+        descriptionText += u.text + '\n';
+      }
 
       const embed = new EmbedBuilder()
         .setColor('#5865F2')
-        .setTitle('🎮 내전 참가자 명단 (티어순)')
-        .setDescription(listDesc)
-        .setFooter({ text: `총 참가 인원: ${userDetails.length}명 | 단위: ${itemsPerPage}명 | 페이지 ${currentPage} / ${totalPages}` });
-
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('page_prev').setLabel('◀ 이전').setStyle(ButtonStyle.Primary).setDisabled(currentPage <= 1),
-        new ButtonBuilder().setCustomId('page_next').setLabel('다음 ▶').setStyle(ButtonStyle.Primary).setDisabled(currentPage >= totalPages)
-      );
+        .setTitle(`🎮 내전 참가자 명단 (선착순 ${limitCount}명 - 티어순 정렬)`)
+        .setDescription(descriptionText || '참가자가 없습니다.')
+        .setFooter({ text: `총 신청 인원: ${currentParticipants.length}명 중 상위 ${limitCount}명 표시` });
 
       return await interaction.editReply({ 
         embeds: [embed], 
-        components: totalPages > 1 ? [row] : [] 
+        components: [] 
       });
     }
 
