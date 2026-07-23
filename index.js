@@ -538,10 +538,9 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // ✨ 2. 티켓 닫기 버튼 (deferUpdate 후 안전하게 editReply 수행)
+    // ✨ 2. 티켓 닫기 버튼
     if (customId === 'ticket_close') {
       try {
-        await interaction.deferUpdate();
         const channel = interaction.channel;
         const overwrites = channel.permissionOverwrites.cache;
         for (const [id] of overwrites) {
@@ -555,17 +554,19 @@ client.on('interactionCreate', async interaction => {
           new ButtonBuilder().setCustomId('ticket_delete').setLabel('티켓 삭제').setStyle(ButtonStyle.Danger)
         );
 
-        return await interaction.editReply({ content: '🔒 티켓이 닫혔습니다. 이제 이 채널에서 채팅을 입력할 수 없습니다.', components: [openRow] });
+        return await interaction.update({ 
+          content: '🔒 티켓이 닫혔습니다. 이제 이 채널에서 채팅을 입력할 수 없습니다.', 
+          components: [openRow] 
+        });
       } catch (err) {
         console.error('티켓 닫기 오류:', err);
       }
       return;
     }
 
-    // ✨ 3. 티켓 열기 버튼 (deferUpdate 후 안전하게 editReply 수행)
+    // ✨ 3. 티켓 열기 버튼
     if (customId === 'ticket_reopen') {
       try {
-        await interaction.deferUpdate();
         const channel = interaction.channel;
         const overwrites = channel.permissionOverwrites.cache;
         for (const [id] of overwrites) {
@@ -579,7 +580,10 @@ client.on('interactionCreate', async interaction => {
           new ButtonBuilder().setCustomId('ticket_delete').setLabel('티켓 삭제').setStyle(ButtonStyle.Danger)
         );
 
-        return await interaction.editReply({ content: '🔓 티켓이 다시 열렸습니다.', components: [controlRow] });
+        return await interaction.update({ 
+          content: '🔓 티켓이 다시 열렸습니다.', 
+          components: [controlRow] 
+        });
       } catch (err) {
         console.error('티켓 열기 오류:', err);
       }
