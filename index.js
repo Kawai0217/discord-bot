@@ -1022,33 +1022,19 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // ✨ [완벽 최종 수정된 전적 검색용 이름 추출 로직]
+          // ✨ [최종 완벽 고정 전적 검색용 이름 추출 로직]
           // 1. 앞에 붙은 나이/숫자(예: "96 ") 제거
           let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
 
-          // 2. 맨 뒤에 붙은 성별(남, 여) 단어와 그 앞의 공백 무조건 싹둑 자름 (예: "... 심 남" -> "... 심")
+          // 2. 맨 뒤에 붙은 성별(남, 여) 단어와 그 앞의 공백 무조건 완벽 제거
           cleanName = cleanName.replace(/\s+(남|여)$/i, '').trim();
 
-          // 3. 라이엇 태그(#) 기준으로 정확하게 분리 (라이엇 태그 기호 '#'가 맨 마지막에 등장하는 것을 타겟팅)
-          const lastHashIndex = cleanName.lastIndexOf('#');
-          if (lastHashIndex !== -1) {
-            let riotName = cleanName.substring(0, lastHashIndex).trim();
-            let riotTag = cleanName.substring(lastHashIndex + 1).trim();
+          // 3. 라이엇 태그(#) 처리: 라이엇 공식 URL 형식에 맞게 # 기호와 띄어쓰기(%20)를 그대로 보존
+          // 예: "이시벅#조 심" -> "이시벅#조 심" (FOW 검색 주소에 그대로 반영되도록 가공)
+          // 닉네임 안에 #이 포함되어 있으므로, 마지막 단어 파트나 해시태그 구조를 정확히 보존합니다.
+          // FOW가 인식하는 URL 포맷: /find/이시벅%23조%20심 (또는 샵을 그대로 두어도 브라우저가 자동 인코딩)
 
-            // 만약 태그 쪽에 불필요한 공백이나 단어가 섞여있어도 첫 단어만 태그로 채택
-            if (riotTag.includes(' ')) {
-              riotTag = riotTag.split(/\s+/)[0];
-            }
-
-            // 원하시는 최종 형태인 '이시벅-조%20심'을 만들기 위해 하이픈(-)으로 결합
-            cleanName = riotTag ? `${riotName}-${riotTag}` : riotName;
-          } else {
-            cleanName = cleanName.replace(/\s+/g, '-');
-          }
-
-          if (!cleanName) cleanName = rawName;
-
-          // ✨ 디스코드에 표시될 닉네임 형식 (오직 맨 뒤 성별만 지우고 닉네임과 태그는 온전히 보존)
+          // 4. 디스코드에 표시될 닉네임 형식 (오직 맨 뒤 성별만 지우고 닉네임과 태그는 온전히 보존)
           let formattedName = rawName
             .replace(/^\d{2}\s*/, '')
             .replace(/\b(여|남)\b/gi, '')
