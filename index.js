@@ -1021,17 +1021,13 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
+          // 정확하게 '닉네임#태그' 부분만 추출하여 전적 링크 생성용으로 활용
           let cleanName = rawName;
-          const tagMatch = rawName.match(/^\d{2}\s+(.+?)\s*#\s*([^\s#]+(?:\s+[^\s#]+)*)(?=\s+(?:여|남|[C,GM,M,D,E,P,G,S,B,I,U])\b|$)/i) || 
-                           rawName.match(/(.+?)\s*#\s*([^\s#]+(?:\s+[^\s#]+)*)/);
+          const tagMatch = rawName.match(/([^\s#]+)\s*#\s*([^\s#]+)/);
 
           if (tagMatch) {
-            let riotName = tagMatch[1].trim();
-            let riotTag = tagMatch[2].trim();
-
-            riotName = riotName.replace(/^\d{2}\s*/, '');
-            riotTag = riotTag.replace(/\s+(여|남)\s*[A-Za-z]?\s*$/, '').trim();
-
+            let riotName = tagMatch[1].replace(/^\d{2}\s*/, '').trim();
+            let riotTag = tagMatch[2].replace(/\s+(여|남)\s*[A-Za-z]?\s*$/, '').trim();
             cleanName = `${riotName}-${riotTag}`;
           } else {
             cleanName = rawName.replace(/^\d{2}\s*/, '')
@@ -1041,7 +1037,7 @@ client.on('interactionCreate', async interaction => {
           }
           if (!cleanName) cleanName = rawName;
 
-          // 닉네임에서 앞의 두 자리 숫자와 성별(남/여) 및 불필요한 공백을 깔끔하게 제거
+          // 명단에 표시될 닉네임 형식 (앞 숫자, 성별 제거)
           let formattedName = rawName
             .replace(/^\d{2}\s*/, '')
             .replace(/\b(여|남)\b/g, '')
