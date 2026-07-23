@@ -1022,28 +1022,22 @@ client.on('interactionCreate', async interaction => {
           const lineText = userLines.length > 0 ? userLines.join(' ') : '포지션 없음';
           const rawName = member.nickname || member.user.globalName || member.user.username;
 
-          // ✨ [강력 개편된 전적 검색용 이름 추출 로직]
+          // ✨ [최종 완벽 고정 전적 검색용 이름 추출 로직]
           // 1. 앞에 붙은 나이/숫자(예: "96 ") 제거
           let cleanName = rawName.replace(/^\d{2}\s*/, '').trim();
 
-          // 2. 맨 뒤에 붙은 성별(남, 여) 단어와 그 앞의 공백을 강제로 깔끔하게 싹둑 자름
+          // 2. 맨 뒤에 붙은 성별(남, 여) 단어와 그 앞의 공백 완벽 제거
           cleanName = cleanName.replace(/\s+(남|여)$/i, '').trim();
 
-          // 3. 라이엇 태그(#) 처리: 
-          // 만약 중간에 여러 개의 해시나 공백 태그가 있어도 마지막 '#'을 기준으로 정확히 분리
-          const lastHashIndex = cleanName.lastIndexOf('#');
-          if (lastHashIndex !== -1) {
-            let riotName = cleanName.substring(0, lastHashIndex).trim();
-            let riotTag = cleanName.substring(lastHashIndex + 1).trim();
-
-            // 태그 뒤에 혹시라도 불필요한 단어가 더 붙어있다면 첫 번째 덩어리만 태그로 채택
-            if (riotTag.includes(' ')) {
-              riotTag = riotTag.split(/\s+/)[0];
-            }
+          // 3. 라이엇 태그 구분을 위해, 오른쪽에서 첫 번째로 등장하는 '#' 또는 닉네임 구조 분석
+          // 예: "이시벅#조 심" -> 라이엇 태그 형식인 "이시벅" + "#" + "조 심" 형태로 분리
+          const hashIndex = cleanName.indexOf('#');
+          if (hashIndex !== -1) {
+            let riotName = cleanName.substring(0, hashIndex).trim();
+            let riotTag = cleanName.substring(hashIndex + 1).trim();
 
             cleanName = riotTag ? `${riotName}-${riotTag}` : riotName;
           } else {
-            // 태그가 없는 경우 띄어쓰기를 하이픈으로 변경
             cleanName = cleanName.replace(/\s+/g, '-');
           }
 
