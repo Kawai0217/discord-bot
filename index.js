@@ -28,11 +28,18 @@ try {
 }
 
 // Render 수면 방지용 HTTP 서버
-http.createServer((req, res) => {
+const httpServer = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end('Bot is alive!');
-}).listen(process.env.PORT || 10000, '0.0.0.0', () => {
-  console.log('HTTP Server is running on port 10000');
+});
+
+httpServer.on('error', (err) => {
+  console.error('HTTP 서버 오류:', err);
+});
+
+const port = process.env.PORT || 10000;
+httpServer.listen(port, '0.0.0.0', () => {
+  console.log(`HTTP Server is running on port ${port}`);
 });
 
 const client = new Client({
@@ -69,7 +76,22 @@ function loadData(filePath) {
 }
 
 function saveData(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  const tempPath = `${filePath}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(data, null, 2));
+  fs.renameSync(tempPath, filePath);
+}
+
+async function safeReact(message, emoji) {
+  try {
+    await message.react(emoji);
+    return true;
+  } catch (err) {
+    // 10008: 반응을 달기 전에 메시지가 삭제된 정상적인 상황
+    if (err?.code !== 10008) {
+      console.error(`메시지 반응 오류 (${emoji}):`, err);
+    }
+    return false;
+  }
 }
 
 const voiceTimeTracker = {};
@@ -264,8 +286,12 @@ client.once('ready', async () => {
     console.error('명령어 등록 오류:', error);
   }
 
-  setInterval(checkExpiredBans, 60 * 1000);
-  setInterval(checkVoiceChannels, 60 * 1000);
+  setInterval(() => {
+    checkExpiredBans().catch(err => console.error('정지 해제 확인 오류:', err));
+  }, 60 * 1000);
+  setInterval(() => {
+    checkVoiceChannels().catch(err => console.error('음성 포인트 확인 오류:', err));
+  }, 60 * 1000);
 });
 
 // 새로운 서버에 추가될 때 즉시 명령어 등록
@@ -389,69 +415,81 @@ async function checkExpiredBans() {
 }
 
 client.on('messageCreate', async (message) => {
-  if (message.author.bot) return;
-  const text = message.content.trim();
-  if (text === 'ㅅ' || text === '손' || text === 't') {
-    const userId = message.author.id;
-    const guildId = message.guild?.id;
-    if (!guildId) return;
-    const channelId = message.channel.id;
+  try {
+    if (message.author.bot) return;
+    const text = message.content.trim();
+    if (text === 'ㅅ' || text === '손' || text === 't') {
+      const userId = message.author.id;
+      const guildId = message.guild?.id;
+      if (!guildId) return;
+      const channelId = message.channel.id;
 
-    const participantsData = loadData(PARTICIPANTS_FILE);
-    if (!participantsData[guildId]) participantsData[guildId] = {};
-    if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
+      const participantsData = loadData(PARTICIPANTS_FILE);
+      if (!participantsData[guildId]) participantsData[guildId] = {};
+      if (!participantsData[guildId][channelId]) participantsData[guildId][channelId] = [];
 
-    if (participantsData[guildId][channelId].includes(userId)) {
-      await message.react('⚠️');
-      return;
+      if (participantsData[guildId][channelId].includes(userId)) {
+        await safeReact(message, '⚠️');
+        return;
+      }
+      participantsData[guildId][channelId].push(userId);
+      saveData(PARTICIPANTS_FILE, participantsData);
+      await safeReact(message, '✅');
     }
-    participantsData[guildId][channelId].push(userId);
-    saveData(PARTICIPANTS_FILE, participantsData);
-    await message.react('✅');
+  } catch (err) {
+    console.error('내전 참가 메시지 처리 오류:', err);
   }
 });
 
 // 🗑️ 유저가 'ㅅ', '손', 't' 메시지를 삭제했을 때 명단에서 즉시 제외
 client.on('messageDelete', (message) => {
-  if (message.author?.bot) return;
-  const text = message.content?.trim();
-  if (text === 'ㅅ' || text === '손' || text === 't') {
-    const userId = message.author.id;
-    const guildId = message.guild?.id;
-    const channelId = message.channel.id;
-    if (!guildId) return;
+  try {
+    if (message.author?.bot) return;
+    const text = message.content?.trim();
+    if (text === 'ㅅ' || text === '손' || text === 't') {
+      const userId = message.author.id;
+      const guildId = message.guild?.id;
+      const channelId = message.channel.id;
+      if (!guildId) return;
 
-    const participantsData = loadData(PARTICIPANTS_FILE);
-    if (participantsData[guildId]?.[channelId]) {
-      const index = participantsData[guildId][channelId].indexOf(userId);
-      if (index !== -1) {
-        participantsData[guildId][channelId].splice(index, 1);
-        saveData(PARTICIPANTS_FILE, participantsData);
+      const participantsData = loadData(PARTICIPANTS_FILE);
+      if (participantsData[guildId]?.[channelId]) {
+        const index = participantsData[guildId][channelId].indexOf(userId);
+        if (index !== -1) {
+          participantsData[guildId][channelId].splice(index, 1);
+          saveData(PARTICIPANTS_FILE, participantsData);
+        }
       }
     }
+  } catch (err) {
+    console.error('삭제 메시지 처리 오류:', err);
   }
 });
 
 // ✏️ 유저가 메시지 내용을 바꿨을 때(수정했을 때)도 명단에서 제외
 client.on('messageUpdate', (oldMessage, newMessage) => {
-  if (newMessage.author?.bot) return;
-  const oldText = oldMessage.content?.trim();
-  const newText = newMessage.content?.trim();
+  try {
+    if (newMessage.author?.bot) return;
+    const oldText = oldMessage.content?.trim();
+    const newText = newMessage.content?.trim();
 
-  if (['ㅅ', '손', 't'].includes(oldText) && !['ㅅ', '손', 't'].includes(newText)) {
-    const userId = newMessage.author.id;
-    const guildId = newMessage.guild?.id;
-    const channelId = newMessage.channel.id;
-    if (!guildId) return;
+    if (['ㅅ', '손', 't'].includes(oldText) && !['ㅅ', '손', 't'].includes(newText)) {
+      const userId = newMessage.author.id;
+      const guildId = newMessage.guild?.id;
+      const channelId = newMessage.channel.id;
+      if (!guildId) return;
 
-    const participantsData = loadData(PARTICIPANTS_FILE);
-    if (participantsData[guildId]?.[channelId]) {
-      const index = participantsData[guildId][channelId].indexOf(userId);
-      if (index !== -1) {
-        participantsData[guildId][channelId].splice(index, 1);
-        saveData(PARTICIPANTS_FILE, participantsData);
+      const participantsData = loadData(PARTICIPANTS_FILE);
+      if (participantsData[guildId]?.[channelId]) {
+        const index = participantsData[guildId][channelId].indexOf(userId);
+        if (index !== -1) {
+          participantsData[guildId][channelId].splice(index, 1);
+          saveData(PARTICIPANTS_FILE, participantsData);
+        }
       }
     }
+  } catch (err) {
+    console.error('수정 메시지 처리 오류:', err);
   }
 });
 
@@ -636,7 +674,10 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.deferred && !interaction.replied) {
     try {
       await interaction.deferReply({ flags: isPrivateCommand ? MessageFlags.Ephemeral : undefined });
-    } catch (e) {}
+    } catch (err) {
+      console.error(`명령어 응답 지연 처리 오류 (${commandName}):`, err);
+      return;
+    }
   }
 
   try {
@@ -1246,4 +1287,28 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+client.on('error', err => {
+  console.error('Discord 클라이언트 오류:', err);
+});
+
+client.on('shardError', err => {
+  console.error('Discord 연결 오류:', err);
+});
+
+client.on('warn', warning => {
+  console.warn('Discord 경고:', warning);
+});
+
+process.on('unhandledRejection', reason => {
+  console.error('처리되지 않은 Promise 오류:', reason);
+});
+
+if (!process.env.DISCORD_TOKEN) {
+  console.error('DISCORD_TOKEN 환경 변수가 설정되지 않았습니다.');
+  process.exitCode = 1;
+} else {
+  client.login(process.env.DISCORD_TOKEN).catch(err => {
+    console.error('Discord 로그인 오류:', err);
+    process.exitCode = 1;
+  });
+}
