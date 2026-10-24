@@ -523,6 +523,19 @@ client.on('messageUpdate', (oldMessage, newMessage) => {
 });
 
 client.on('interactionCreate', async interaction => {
+  console.log(`[명령진단] 수신 type=${interaction.type} name=${interaction.commandName || interaction.customId || '-'} age=${Date.now() - interaction.createdTimestamp}ms`);
+  // 데이터 읽기보다 먼저 Discord에 접수 응답을 보냅니다.
+  if (interaction.isChatInputCommand()) {
+    try {
+      const privateReply = ['백업', '복구', '문의패널'].includes(interaction.commandName);
+      await interaction.deferReply({ flags: privateReply ? MessageFlags.Ephemeral : undefined });
+      console.log(`[명령진단] 접수 완료 ${interaction.commandName}`);
+    } catch (err) {
+      console.error(`[명령진단] 접수 실패 ${interaction.commandName} code=${err.code} message=${err.message}`);
+      return;
+    }
+  }
+  try {
   // ✨ 버튼 클릭 처리
   if (interaction.isButton()) {
     const customId = interaction.customId;
@@ -686,6 +699,7 @@ client.on('interactionCreate', async interaction => {
   const { commandName, guildId, options, user, guild, channel } = interaction;
   const channelId = channel.id;
 
+  console.log(`[명령진단] 데이터 읽기 시작 ${commandName}`);
   const pointsData = loadData(POINTS_FILE);
   if (!pointsData[guildId]) pointsData[guildId] = {};
   const warningsData = loadData(WARNINGS_FILE);
@@ -746,14 +760,27 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (commandName === '복구') {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+        return await interaction.editReply({ content: '⚠️ 복구는 관리자만 사용할 수 있습니다.' });
+      }
       const attachedFile = options.getAttachment('파일');
       if (!attachedFile || !attachedFile.name.endsWith('.json')) {
         return await interaction.editReply({ content: '⚠️ 올바른 `.json` 형식의 백업 파일을 첨부해 주세요!' });
       }
 
       try {
-        const response = await fetch(attachedFile.url);
+        console.log('[복구진단] 백업 다운로드 시작');
+        const response = await fetch(attachedFile.url, { signal: AbortSignal.timeout(20000) });
+        if (!response.ok) throw new Error(`백업 다운로드 HTTP ${response.status}`);
         const backupData = await response.json();
+        const sections = ['points', 'warnings', 'bans', 'shop', 'attendance', 'logConfig', 'warningLogConfig', 'participants'];
+        for (const key of sections) {
+          if (backupData[key] !== undefined && (!backupData[key] || typeof backupData[key] !== 'object' || Array.isArray(backupData[key]))) {
+            throw new Error(`백업 항목 형식 오류: ${key}`);
+          }
+        }
+        if (backupData.guildId && backupData.guildId !== guildId) throw new Error('다른 서버의 백업입니다.');
+        console.log('[복구진단] 다운로드 및 형식 확인 완료');
 
         if (!backupData.points || !backupData.warnings) {
           return await interaction.editReply({ content: '⚠️ 올바른 봇 백업 파일 형식이 아닙니다.' });
@@ -768,6 +795,7 @@ client.on('interactionCreate', async interaction => {
         if (backupData.warningLogConfig) saveData(WARNING_LOG_CONFIG_FILE, backupData.warningLogConfig);
         if (backupData.participants) saveData(PARTICIPANTS_FILE, backupData.participants);
 
+        console.log('[복구진단] 데이터 저장 완료');
         return await interaction.editReply({ content: '✅ 백업 파일로부터 모든 데이터가 성공적으로 복원되었습니다!' });
       } catch (err) {
         console.error('데이터 복구 오류:', err);
@@ -1313,6 +1341,15 @@ client.on('interactionCreate', async interaction => {
     try {
       await interaction.editReply({ content: '⚠️ 명령어를 처리하는 도중 오류가 발생했습니다.' });
     } catch (e) {}
+  }
+  } catch (err) {
+    console.error(`[명령진단] 처리 실패 code=${err.code} message=${err.message}`);
+    try {
+      if (interaction.deferred || interaction.replied) await interaction.editReply({ content: '⚠️ 처리 중 오류가 발생했습니다. 관리자에게 실행 로그 확인을 요청해주세요.' });
+      else await interaction.reply({ content: '⚠️ 처리 중 오류가 발생했습니다.', flags: MessageFlags.Ephemeral });
+    } catch (replyError) {
+      console.error(`[명령진단] 오류 안내 실패 code=${replyError.code}`);
+    }
   }
 });
 
