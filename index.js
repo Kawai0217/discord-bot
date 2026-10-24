@@ -27,10 +27,10 @@ try {
   console.log('⚠️ font.ttf 파일을 찾지 못했습니다.');
 }
 
-// Render 수면 방지용 HTTP 서버
+// HTTP 서버: 디스코드 연결 상태도 함께 표시
 const httpServer = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('Bot is alive!');
+  res.end(client.isReady() ? 'Discord bot is ready!' : 'Web server is alive, but Discord is not ready. Check logs.');
 });
 
 httpServer.on('error', (err) => {
@@ -51,6 +51,34 @@ const client = new Client({
     GatewayIntentBits.GuildVoiceStates
   ]
 });
+
+// 연결 진단: 토큰 및 세션 값은 출력하지 않습니다.
+function connectionLog(label, value = '') {
+  let detail = String(value);
+  const token = process.env.DISCORD_TOKEN;
+  if (token) detail = detail.split(token).join('[REDACTED]');
+  detail = detail.replace(/(token|session_id|sessionId|authorization)([\s"':=]+)[^\s,}]+/gi, '$1$2[REDACTED]');
+  console.log(`[연결진단] ${label} ${detail}`);
+}
+console.log(`[연결진단] Node ${process.version}, discord.js ${require('discord.js').version}`);
+client.on('debug', info => {
+  // 전체 원문 대신 연결 단계만 출력합니다.
+  const value = String(info).toLowerCase();
+  const stages = ['fetching gateway', 'connecting', 'connected', 'identifying', 'waiting for ready', 'session limit', 'heartbeat', 'resuming'];
+  const stage = stages.find(stage => value.includes(stage));
+  if (stage && stage !== 'heartbeat') connectionLog('연결 단계:', stage);
+});
+client.on('shardReady', id => connectionLog('게이트웨이 준비:', id));
+client.on('shardDisconnect', (event, id) => connectionLog('게이트웨이 연결 해제:', `shard=${id}, code=${event.code}`));
+client.on('shardReconnecting', id => connectionLog('재연결 시도:', id));
+client.on('shardResume', id => connectionLog('연결 복구:', id));
+client.on('invalidated', () => connectionLog('디스코드 세션 무효화'));
+setInterval(() => {
+  connectionLog('상태:', `ready=${client.isReady()}, ws=${client.ws.status}, uptime=${Math.floor(process.uptime())}초`);
+}, 60000).unref();
+setTimeout(() => {
+  if (!client.isReady()) connectionLog('시작 지연:', '90초가 지나도 Discord 연결이 준비되지 않았습니다.');
+}, 90000).unref();
 
 const CIVIL_WAR_ROLE_NAME = '내전'; 
 
@@ -83,11 +111,12 @@ function saveData(filePath, data) {
 
 async function safeReact(message, emoji) {
   try {
+    if (message.channel?.isThread() && message.channel.archived) return false;
     await message.react(emoji);
     return true;
   } catch (err) {
     // 10008: 반응을 달기 전에 메시지가 삭제된 정상적인 상황
-    if (err?.code !== 10008) {
+    if (![10008, 50083].includes(err?.code)) {
       console.error(`메시지 반응 오류 (${emoji}):`, err);
     }
     return false;
@@ -273,7 +302,7 @@ const commands = [
   new SlashCommandBuilder().setName('상점삭제').setDescription('상점 역할 삭제 (관리자)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addRoleOption(option => option.setName('역할').setDescription('역할').setRequired(true))
 ].map(command => command.toJSON());
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`🤖 ${client.user.tag} 봇 준비 완료!`);
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
@@ -1307,7 +1336,10 @@ if (!process.env.DISCORD_TOKEN) {
   console.error('DISCORD_TOKEN 환경 변수가 설정되지 않았습니다.');
   process.exitCode = 1;
 } else {
-  client.login(process.env.DISCORD_TOKEN).catch(err => {
+  connectionLog('로그인 시작');
+  client.login(process.env.DISCORD_TOKEN).then(() => {
+    connectionLog('로그인 완료');
+  }).catch(err => {
     console.error('Discord 로그인 오류:', err);
     process.exitCode = 1;
   });
